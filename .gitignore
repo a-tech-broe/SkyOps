@@ -216,3 +216,22 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Node / JS
+node_modules/
+dist/
+web/dist/
+*.log
+npm-debug.log*
+
+# Expo / React Native
+mobile/.expo/
+mobile/ios/
+mobile/android/
+
+# Environment
+.env.local
+.env.*.local
+
+# OS
+.DS_Store

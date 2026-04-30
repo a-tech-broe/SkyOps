@@ -1,0 +1,226 @@
+name: CD — Build · Scan · Sign · Push
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*.*.*']
+  workflow_dispatch:
+    inputs:
+      push:
+        description: 'Push images to Docker Hub'
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+  security-events: write   # SARIF upload
+  id-token: write          # Cosign keyless signing via OIDC
+  packages: write
+
+concurrency:
+  group: cd-${{ github.ref }}
+  cancel-in-progress: false  # never cancel a production deploy
+
+jobs:
+  # ──────────────────────────────────────────────
+  # 1. SECRET SCAN — mandatory gate
+  # ──────────────────────────────────────────────
+  secret-scan:
+    name: Secret Scan (Gitleaks)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Run Gitleaks
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # ──────────────────────────────────────────────
+  # 2. SAST — production gate (fail on any finding)
+  # ──────────────────────────────────────────────
+  sast:
+    name: SAST (Semgrep)
+    runs-on: ubuntu-latest
+    container:
+      image: semgrep/semgrep
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run Semgrep
+        run: |
+          if [ -n "$SEMGREP_APP_TOKEN" ]; then
+            semgrep ci --sarif --output=semgrep.sarif
+          else
+            semgrep scan --config=auto --sarif --output=semgrep.sarif
+          fi
+        env:
+          SEMGREP_APP_TOKEN: ${{ secrets.SEMGREP_APP_TOKEN }}
+
+      - name: Upload SARIF
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: semgrep.sarif
+          category: semgrep
+
+  # ──────────────────────────────────────────────
+  # 3. DEPENDENCY AUDIT — fail on HIGH in prod
+  # ──────────────────────────────────────────────
+  dependency-audit:
+    name: Dependency Audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Audit backend
+        run: cd backend && npm install --prefer-offline && npm audit --audit-level=high
+
+      - name: Audit web
+        run: cd web && npm install --prefer-offline && npm audit --audit-level=high
+
+  # ──────────────────────────────────────────────
+  # 4. BUILD · SCAN · PUSH — matrix per service
+  # ──────────────────────────────────────────────
+  build-scan-push:
+    name: Build · Scan · Push (${{ matrix.service }})
+    runs-on: ubuntu-latest
+    needs: [secret-scan, sast, dependency-audit]
+    strategy:
+      fail-fast: false
+      matrix:
+        service: [backend, web]
+
+    outputs:
+      backend-digest: ${{ steps.build.outputs.digest }}
+      web-digest: ${{ steps.build.outputs.digest }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # ── Docker setup ──
+      - name: Set up QEMU (multi-arch)
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      # ── Image metadata / tags ──
+      - name: Docker metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ secrets.DOCKERHUB_USERNAME }}/skyops-${{ matrix.service }}
+          tags: |
+            # semver on tag push (v1.2.3 → 1.2.3, 1.2, 1)
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=semver,pattern={{major}}
+            # branch name on non-tag pushes
+            type=ref,event=branch
+            # immutable SHA tag always
+            type=sha,prefix=sha-,format=short
+            # latest only on main branch
+            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
+          labels: |
+            org.opencontainers.image.title=SkyOps ${{ matrix.service }}
+            org.opencontainers.image.description=Aviation tools for GA pilots
+            org.opencontainers.image.vendor=SkyOps
+            org.opencontainers.image.licenses=MIT
+
+      # ── Build multi-platform & push ──
+      - name: Build and push
+        id: build
+        uses: docker/build-push-action@v6
+        with:
+          context: ./${{ matrix.service }}
+          file: ./${{ matrix.service }}/Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: ${{ github.event_name != 'workflow_dispatch' || inputs.push }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          provenance: true     # SLSA provenance attestation
+          sbom: true           # inline SBOM attestation
+          cache-from: type=gha,scope=${{ matrix.service }}-prod
+          cache-to: type=gha,scope=${{ matrix.service }}-prod,mode=max
+          build-args: |
+            BUILD_DATE=${{ github.event.repository.updated_at }}
+            VCS_REF=${{ github.sha }}
+
+      # ── Trivy image scan — fail on CRITICAL or HIGH ──
+      - name: Trivy image scan (prod gate)
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: ${{ secrets.DOCKERHUB_USERNAME }}/skyops-${{ matrix.service }}@${{ steps.build.outputs.digest }}
+          severity: CRITICAL,HIGH
+          exit-code: '1'
+          ignore-unfixed: true
+          format: sarif
+          output: trivy-prod-${{ matrix.service }}.sarif
+
+      - name: Upload Trivy SARIF
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: trivy-prod-${{ matrix.service }}.sarif
+          category: trivy-prod-${{ matrix.service }}
+
+      # ── Cosign keyless signing (OIDC — no key secrets needed) ──
+      - name: Install Cosign
+        uses: sigstore/cosign-installer@v3
+
+      - name: Sign image (keyless OIDC)
+        if: ${{ github.event_name != 'workflow_dispatch' || inputs.push }}
+        run: |
+          cosign sign --yes \
+            "${{ secrets.DOCKERHUB_USERNAME }}/skyops-${{ matrix.service }}@${{ steps.build.outputs.digest }}"
+        env:
+          COSIGN_EXPERIMENTAL: '1'
+
+      # ── SBOM export as release artifact ──
+      - name: Generate SBOM (Syft)
+        uses: anchore/sbom-action@v0
+        with:
+          image: ${{ secrets.DOCKERHUB_USERNAME }}/skyops-${{ matrix.service }}@${{ steps.build.outputs.digest }}
+          format: spdx-json
+          artifact-name: sbom-${{ matrix.service }}-${{ github.sha }}.spdx.json
+          upload-artifact: true
+          upload-release-assets: true
+
+  # ──────────────────────────────────────────────
+  # 5. SUMMARY — post digest + verify instructions
+  # ──────────────────────────────────────────────
+  summary:
+    name: Deployment Summary
+    runs-on: ubuntu-latest
+    needs: [build-scan-push]
+    if: always()
+    steps:
+      - name: Write job summary
+        run: |
+          echo "## SkyOps Release — ${{ github.sha }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Service | Image | Status |" >> $GITHUB_STEP_SUMMARY
+          echo "|---|---|---|" >> $GITHUB_STEP_SUMMARY
+          echo "| backend | \`${{ secrets.DOCKERHUB_USERNAME }}/skyops-backend:sha-$(echo ${{ github.sha }} | cut -c1-7)\` | ${{ needs.build-scan-push.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| web | \`${{ secrets.DOCKERHUB_USERNAME }}/skyops-web:sha-$(echo ${{ github.sha }} | cut -c1-7)\` | ${{ needs.build-scan-push.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Verify image signatures" >> $GITHUB_STEP_SUMMARY
+          echo '```bash' >> $GITHUB_STEP_SUMMARY
+          echo "cosign verify \\" >> $GITHUB_STEP_SUMMARY
+          echo "  --certificate-identity-regexp='https://github.com/${{ github.repository }}' \\" >> $GITHUB_STEP_SUMMARY
+          echo "  --certificate-oidc-issuer='https://token.actions.githubusercontent.com' \\" >> $GITHUB_STEP_SUMMARY
+          echo "  ${{ secrets.DOCKERHUB_USERNAME }}/skyops-backend:latest" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY

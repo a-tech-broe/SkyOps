@@ -1,0 +1,11 @@
+failure-threshold: warning
+
+ignored:
+  - DL3008 # apt-get: pin versions (acceptable in dev images)
+  - DL3018   # apk: pin versions (we use alpine tags instead)
+
+trustedRegistries:
+  - docker.io
+  - node
+  - postgres
+  - nginx

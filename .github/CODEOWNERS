@@ -1,0 +1,6 @@
+# Global owner — required review on all changes
+* @Jenom
+
+# Workflow changes need extra scrutiny
+.github/workflows/ @Jenom
+docker-compose*.yml @Jenom
