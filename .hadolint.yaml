@@ -1,8 +1,9 @@
 failure-threshold: warning
 
-ignored:
+ignore:
   - DL3008 # apt-get: pin versions (acceptable in dev images)
-  - DL3018   # apk: pin versions (we use alpine tags instead)
+  - DL3017 # apk upgrade: intentional — ensures latest patches in final image
+  - DL3018 # apk: pin versions (we use alpine tags instead)
 
 trustedRegistries:
   - docker.io
