@@ -5,11 +5,9 @@ COPY package*.json ./
 RUN npm ci
 COPY tsconfig.json ./
 COPY src ./src
-RUN npm run build
-# Separate install for prod-only node_modules
-RUN npm ci --omit=dev
+RUN npm run build && npm ci --omit=dev
 
-FROM gcr.io/distroless/nodejs22-debian12
+FROM gcr.io/distroless/nodejs22-debian12:nonroot
 WORKDIR /app
 ENV NODE_ENV=production
 COPY --from=builder /app/node_modules ./node_modules
