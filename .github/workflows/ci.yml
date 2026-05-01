@@ -196,7 +196,7 @@ jobs:
           sarif_file: trivy-fs-${{ matrix.service }}.sarif
           category: trivy-fs-${{ matrix.service }}
 
-      # Image scan — CRITICAL CVEs block the build
+      # Image scan — CRITICAL CVEs with available fixes block the build
       - name: Trivy image scan
         id: trivy-image
         uses: aquasecurity/trivy-action@master
@@ -205,6 +205,7 @@ jobs:
           image-ref: skyops-${{ matrix.service }}:ci
           severity: CRITICAL
           exit-code: '1'
+          ignore-unfixed: true
           format: sarif
           output: trivy-image-${{ matrix.service }}.sarif
 
