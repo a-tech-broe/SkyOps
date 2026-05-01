@@ -1,9 +1,9 @@
-interface CloudLayer {
+export interface CloudLayer {
   cover: string;
   base: number;
 }
 
-interface MetarData {
+export interface MetarData {
   icaoId: string;
   name: string;
   obsTime: number;

@@ -1,14 +1,20 @@
 import { useState } from 'react';
 import { api } from '../api/client';
-import MetarDisplay from '../components/MetarDisplay';
-import TafDisplay from '../components/TafDisplay';
+import MetarDisplay, { MetarData } from '../components/MetarDisplay';
+import TafDisplay, { TafData } from '../components/TafDisplay';
+
+interface Pirep {
+  rawOb: string;
+  altitude: number;
+  acType: string | null;
+}
 
 export default function WeatherPage() {
   const [icao, setIcao] = useState('');
   const [query, setQuery] = useState('');
-  const [metar, setMetar] = useState<unknown>(null);
-  const [taf, setTaf] = useState<unknown>(null);
-  const [pireps, setPireps] = useState<unknown[]>([]);
+  const [metar, setMetar] = useState<MetarData | null>(null);
+  const [taf, setTaf] = useState<TafData | null>(null);
+  const [pireps, setPireps] = useState<Pirep[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
@@ -32,15 +38,15 @@ export default function WeatherPage() {
       ]);
 
       if (metarRes.status === 'fulfilled') {
-        const arr = metarRes.value as unknown[];
+        const arr = metarRes.value as MetarData[];
         setMetar(arr[0] ?? null);
       }
       if (tafRes.status === 'fulfilled') {
-        const arr = tafRes.value as unknown[];
+        const arr = tafRes.value as TafData[];
         setTaf(arr[0] ?? null);
       }
       if (pirepRes.status === 'fulfilled') {
-        setPireps(pirepRes.value as unknown[]);
+        setPireps(pirepRes.value as Pirep[]);
       }
 
       if (metarRes.status === 'rejected' && tafRes.status === 'rejected') {
@@ -79,8 +85,8 @@ export default function WeatherPage() {
         </div>
       )}
 
-      {metar && <MetarDisplay metar={metar as Parameters<typeof MetarDisplay>[0]['metar']} />}
-      {taf && <TafDisplay taf={taf as Parameters<typeof TafDisplay>[0]['taf']} />}
+      {metar && <MetarDisplay metar={metar} />}
+      {taf && <TafDisplay taf={taf} />}
 
       {pireps.length > 0 && (
         <div className="card space-y-2">
@@ -88,8 +94,8 @@ export default function WeatherPage() {
             PIREPs near {query} ({pireps.length})
           </h3>
           <div className="space-y-2">
-            {(pireps as Array<{ rawOb: string; altitude: number; acType: string | null }>).map(
-              (p, i) => (
+            {pireps.map(
+              (p: Pirep, i: number) => (
                 <div key={i} className="bg-slate-950 rounded p-2">
                   <p className="text-slate-500 text-xs font-mono">
                     FL{p.altitude} · {p.acType ?? 'UNKN'}

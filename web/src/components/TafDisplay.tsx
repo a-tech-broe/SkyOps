@@ -1,4 +1,4 @@
-interface TafData {
+export interface TafData {
   icaoId: string;
   rawTAF: string;
   issueTime: string;
