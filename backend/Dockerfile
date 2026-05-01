@@ -7,10 +7,17 @@ COPY tsconfig.json ./
 COPY src ./src
 RUN npm run build && npm ci --omit=dev
 
-FROM gcr.io/distroless/nodejs22-debian12:nonroot
+FROM node:22-bookworm-slim
+RUN apt-get update \
+    && apt-get upgrade -y \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
+RUN addgroup --system --gid 1001 nodejs \
+    && adduser --system --uid 1001 --ingroup nodejs skyops
 WORKDIR /app
 ENV NODE_ENV=production
-COPY --from=builder /app/node_modules ./node_modules
-COPY --from=builder /app/dist ./dist
+COPY --chown=skyops:nodejs --from=builder /app/node_modules ./node_modules
+COPY --chown=skyops:nodejs --from=builder /app/dist ./dist
+USER skyops
 EXPOSE 3001
-CMD ["dist/index.js"]
+CMD ["node", "dist/index.js"]
