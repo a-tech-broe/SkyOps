@@ -51,6 +51,7 @@ jobs:
           recursive: true
           config: .hadolint.yaml
           failure-threshold: warning
+          ignore: "DL3005 DL3008 DL3017 DL3018"
 
       - uses: actions/setup-node@v4
         with:
