@@ -25,6 +25,27 @@ Aviation tools for GA pilots — Weather · NOTAMs · Airports · Currency
 
 ---
 
+## Repository layout
+
+```
+SkyOps/
+├── app/                        # All application source code
+│   ├── backend/                # Node.js 22 + Express + TypeScript API
+│   ├── web/                    # React 18 + Vite + Tailwind CSS
+│   ├── mobile/                 # Expo (React Native) + Expo Router
+│   ├── docker-compose.yml      # Build from source (local prod simulation)
+│   └── docker-compose.dev.yml  # Dev with hot reload
+├── infra/
+│   ├── terraform/              # AWS EC2 provisioning (Terraform)
+│   └── docker-compose.prod.yml # EC2 runtime compose (DockerHub images)
+└── .github/workflows/
+    ├── ci.yml                  # PR / dev: lint · scan · build
+    ├── cd.yml                  # main: build · sign · push to DockerHub
+    └── deploy.yml              # Auto-deploy to EC2 after CD succeeds
+```
+
+---
+
 ## Stack
 
 | Layer | Tech |
@@ -42,9 +63,9 @@ Aviation tools for GA pilots — Weather · NOTAMs · Airports · Currency
 ### Dev
 
 ```bash
-cp .env.example .env
+cp app/.env.example app/.env
 # fill in FAA_CLIENT_ID and FAA_CLIENT_SECRET
-docker compose -f docker-compose.dev.yml up --build
+docker compose -f app/docker-compose.dev.yml up --build
 ```
 
 | Service | URL |
@@ -53,12 +74,12 @@ docker compose -f docker-compose.dev.yml up --build
 | API | http://localhost:3001 |
 | Mobile | Scan QR from Expo dev server output |
 
-### Production
+### Production (build from source)
 
 ```bash
-cp .env.example .env
+cp app/.env.example app/.env
 # fill in DB_PASSWORD, FAA_CLIENT_ID, FAA_CLIENT_SECRET
-docker compose up --build -d
+docker compose -f app/docker-compose.yml up --build -d
 ```
 
 | Service | URL |
@@ -115,6 +136,54 @@ All CI gates, plus:
 | `FAA_CLIENT_ID` | Runtime (NOTAMs) |
 | `FAA_CLIENT_SECRET` | Runtime (NOTAMs) |
 | `SEMGREP_APP_TOKEN` | CI — optional, enables cloud dashboard |
+| `EC2_HOST` | deploy.yml — Elastic IP of the EC2 instance |
+| `EC2_SSH_KEY` | deploy.yml — private key content (PEM) for SSH |
+
+---
+
+## EC2 Deployment (Terraform)
+
+Infrastructure lives in `infra/terraform/`. It provisions an Amazon Linux 2023 EC2 instance that pulls pre-built images from DockerHub and runs them via Docker Compose.
+
+### One-time: store secrets in SSM Parameter Store
+
+```bash
+aws ssm put-parameter --name /skyops/DB_PASSWORD      --value "..." --type SecureString
+aws ssm put-parameter --name /skyops/FAA_CLIENT_ID    --value "..." --type SecureString
+aws ssm put-parameter --name /skyops/FAA_CLIENT_SECRET --value "..." --type SecureString
+```
+
+### Provision
+
+```bash
+cd infra/terraform
+terraform init
+terraform apply \
+  -var="key_name=your-ec2-keypair" \
+  -var="dockerhub_username=your-dockerhub-username" \
+  -var="allowed_ssh_cidr=$(curl -s ifconfig.me)/32"
+```
+
+Terraform outputs the Elastic IP and an SSH command. Add the IP as `EC2_HOST` in GitHub Secrets to enable automatic deploys.
+
+### What gets provisioned
+
+| Resource | Detail |
+|---|---|
+| EC2 | Amazon Linux 2023, `t3.small`, 20 GB gp3 encrypted |
+| IAM role | SSM Parameter Store read-only (`/skyops/*`) |
+| Security group | 80 + 443 public, 22 restricted to `allowed_ssh_cidr` |
+| Elastic IP | Static address, survives instance stops |
+| Systemd service | Containers auto-start on reboot |
+
+### Subsequent deploys
+
+After every merge to `main`, `cd.yml` pushes new images and `deploy.yml` automatically SSHes into EC2 and runs:
+
+```bash
+docker compose -f docker-compose.prod.yml pull
+docker compose -f docker-compose.prod.yml up -d --remove-orphans
+```
 
 ---
 

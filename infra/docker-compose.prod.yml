@@ -1,0 +1,46 @@
+# Production compose — runs pre-built DockerHub images (no source build).
+# Used by the deploy workflow and as the reference for what runs on EC2.
+# Requires .env with: DB_USER, DB_PASSWORD, FAA_CLIENT_ID, FAA_CLIENT_SECRET,
+#                     DOCKERHUB_USERNAME, IMAGE_TAG, VITE_API_URL
+
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: skyops
+      POSTGRES_USER: ${DB_USER}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  backend:
+    image: ${DOCKERHUB_USERNAME}/skyops-backend:${IMAGE_TAG:-latest}
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      PORT: 3001
+      DB_URL: postgresql://${DB_USER}:${DB_PASSWORD}@db:5432/skyops
+      FAA_CLIENT_ID: ${FAA_CLIENT_ID}
+      FAA_CLIENT_SECRET: ${FAA_CLIENT_SECRET}
+    ports:
+      - "3001:3001"
+
+  web:
+    image: ${DOCKERHUB_USERNAME}/skyops-web:${IMAGE_TAG:-latest}
+    restart: unless-stopped
+    depends_on:
+      - backend
+    ports:
+      - "80:8080"
+
+volumes:
+  pgdata:

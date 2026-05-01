@@ -84,10 +84,10 @@ jobs:
           node-version: '20'
 
       - name: Audit backend
-        run: cd backend && npm install --prefer-offline && npm audit --audit-level=high
+        run: cd app/backend && npm install --prefer-offline && npm audit --audit-level=high
 
       - name: Audit web
-        run: cd web && npm install --prefer-offline && npm audit --audit-level=high
+        run: cd app/web && npm install --prefer-offline && npm audit --audit-level=high
 
   # ──────────────────────────────────────────────
   # 4. BUILD · SCAN · PUSH — matrix per service
@@ -149,8 +149,8 @@ jobs:
         id: build
         uses: docker/build-push-action@v6
         with:
-          context: ./${{ matrix.service }}
-          file: ./${{ matrix.service }}/Dockerfile
+          context: ./app/${{ matrix.service }}
+          file: ./app/${{ matrix.service }}/Dockerfile
           platforms: linux/amd64,linux/arm64
           push: ${{ github.event_name != 'workflow_dispatch' || inputs.push }}
           tags: ${{ steps.meta.outputs.tags }}
