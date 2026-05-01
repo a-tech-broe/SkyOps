@@ -1,4 +1,4 @@
-FROM node:20-alpine AS builder
+FROM node:22-alpine3.21 AS builder
 RUN apk upgrade --no-cache
 WORKDIR /app
 COPY package*.json ./
@@ -6,13 +6,13 @@ RUN npm ci
 COPY tsconfig.json ./
 COPY src ./src
 RUN npm run build
+# Separate install for prod-only node_modules
+RUN npm ci --omit=dev
 
-FROM node:20-alpine
-RUN apk upgrade --no-cache
+FROM gcr.io/distroless/nodejs22-debian12
 WORKDIR /app
 ENV NODE_ENV=production
-COPY package*.json ./
-RUN npm ci --omit=dev
+COPY --from=builder /app/node_modules ./node_modules
 COPY --from=builder /app/dist ./dist
 EXPOSE 3001
-CMD ["node", "dist/index.js"]
+CMD ["dist/index.js"]
