@@ -1,0 +1,14 @@
+failure-threshold: warning
+
+ignore:
+  - DL3005 # apt-get upgrade: intentional — pulls security patches (libssl3 CVE fix)
+  - DL3008 # apt-get: pin versions (acceptable in dev images)
+  - DL3017 # apk upgrade: intentional — ensures latest patches in final image
+  - DL3018 # apk: pin versions (we use alpine tags instead)
+
+trustedRegistries:
+  - docker.io
+  - gcr.io
+  - node
+  - postgres
+  - nginx

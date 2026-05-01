@@ -1,0 +1,4 @@
+# Add CVE IDs here only after security review and documented business justification.
+# Format: CVE-YYYY-NNNNN
+# Example:
+# CVE-2023-12345  # accepted: no fix available, mitigated by network policy — reviewed 2024-01-15
