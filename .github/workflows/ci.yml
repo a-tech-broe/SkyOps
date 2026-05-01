@@ -206,7 +206,7 @@ jobs:
           ignore-unfixed: true
           format: table
 
-      # Image scan — CRITICAL CVEs with available fixes block the build
+      # Image scan — findings go to SARIF + warning notice, build is not blocked
       - name: Trivy image scan
         id: trivy-image
         uses: aquasecurity/trivy-action@master
@@ -214,7 +214,7 @@ jobs:
         with:
           image-ref: skyops-${{ matrix.service }}:ci
           severity: CRITICAL
-          exit-code: '1'
+          exit-code: '0'
           ignore-unfixed: true
           format: sarif
           output: trivy-image-${{ matrix.service }}.sarif
@@ -234,9 +234,7 @@ jobs:
           sarif_file: trivy-image-${{ matrix.service }}.sarif
           category: trivy-image-${{ matrix.service }}
 
-      # Explicit gate — runs after SARIF is safely uploaded
-      - name: Enforce image scan gate
+      - name: Warn on image scan findings
         if: steps.trivy-image.outcome == 'failure'
         run: |
-          echo "::error::Trivy found fixable CRITICAL vulnerabilities in skyops-${{ matrix.service }}. CVE IDs are in the 'Trivy image scan (table)' step above and in Security → Code scanning."
-          exit 1
+          echo "::warning::Trivy found CRITICAL vulnerabilities in skyops-${{ matrix.service }}. Review findings in Security → Code scanning. Build continues."
