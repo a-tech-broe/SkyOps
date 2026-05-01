@@ -3,8 +3,6 @@
 
     WORKDIR /app
     
-    RUN apk update && apk upgrade --no-cache
-    
     COPY package*.json ./
     RUN npm ci
     
@@ -19,11 +17,22 @@
     # -------- PRODUCTION STAGE --------
     FROM nginx:1.27.10-alpine3.21
     
-    RUN apk update && apk upgrade --no-cache \
-        && apk add --no-cache libcrypto3 libssl3 libxml2
+    # Remove default config if needed
+    # RUN rm /etc/nginx/conf.d/default.conf
+    
+    # Fix permissions for non-root execution
+    RUN chown -R nginx:nginx /usr/share/nginx/html \
+        && chown -R nginx:nginx /var/cache/nginx \
+        && chown -R nginx:nginx /var/log/nginx \
+        && chown -R nginx:nginx /etc/nginx/conf.d
     
     COPY --from=builder /app/dist /usr/share/nginx/html
     COPY nginx.conf /etc/nginx/conf.d/default.conf
     
-    EXPOSE 80
+    # 🔥 IMPORTANT: use non-privileged port
+    EXPOSE 8080
+    
+    # Switch to non-root user
+    USER nginx
+    
     CMD ["nginx", "-g", "daemon off;"]
