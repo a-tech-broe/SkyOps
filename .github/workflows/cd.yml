@@ -161,7 +161,9 @@ jobs:
 
       # ── Trivy image scan — fail on CRITICAL or HIGH ──
       - name: Trivy image scan (prod gate)
+        id: trivy-prod
         uses: aquasecurity/trivy-action@master
+        continue-on-error: true      # let SARIF upload always run
         with:
           image-ref: ${{ secrets.DOCKERHUB_USERNAME }}/skyops-${{ matrix.service }}@${{ steps.build.outputs.digest }}
           severity: CRITICAL,HIGH
@@ -170,12 +172,26 @@ jobs:
           format: sarif
           output: trivy-prod-${{ matrix.service }}.sarif
 
+      - name: Ensure prod SARIF exists
+        if: always()
+        run: |
+          [ -f "trivy-prod-${{ matrix.service }}.sarif" ] || \
+            echo '{"version":"2.1.0","$schema":"https://json.schemastore.org/sarif-2.1.0.json","runs":[]}' \
+            > trivy-prod-${{ matrix.service }}.sarif
+
       - name: Upload Trivy SARIF
         uses: github/codeql-action/upload-sarif@v3
         if: always()
         with:
           sarif_file: trivy-prod-${{ matrix.service }}.sarif
           category: trivy-prod-${{ matrix.service }}
+
+      # Explicit gate — runs after SARIF is safely uploaded
+      - name: Enforce prod scan gate
+        if: steps.trivy-prod.outcome == 'failure'
+        run: |
+          echo "::error::Trivy found CRITICAL/HIGH vulnerabilities in the production image. Deployment blocked."
+          exit 1
 
       # ── Cosign keyless signing (OIDC — no key secrets needed) ──
       - name: Install Cosign
