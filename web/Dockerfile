@@ -15,7 +15,7 @@
     
     
     # -------- PRODUCTION STAGE --------
-    FROM nginx:1.27.10-alpine3.21
+    FROM nginx:1.27-alpine3.22
     
     # Remove default config if needed
     # RUN rm /etc/nginx/conf.d/default.conf
