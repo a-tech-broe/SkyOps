@@ -84,10 +84,10 @@ jobs:
           node-version: '20'
 
       - name: Audit backend
-        run: cd backend && npm install --prefer-offline && npm audit --audit-level=high
+        run: cd app/backend && npm install --prefer-offline && npm audit --audit-level=high
 
       - name: Audit web
-        run: cd web && npm install --prefer-offline && npm audit --audit-level=high
+        run: cd app/web && npm install --prefer-offline && npm audit --audit-level=high
 
   # ──────────────────────────────────────────────
   # 4. BUILD · SCAN · PUSH — matrix per service
@@ -149,8 +149,8 @@ jobs:
         id: build
         uses: docker/build-push-action@v6
         with:
-          context: ./${{ matrix.service }}
-          file: ./${{ matrix.service }}/Dockerfile
+          context: ./app/${{ matrix.service }}
+          file: ./app/${{ matrix.service }}/Dockerfile
           platforms: linux/amd64,linux/arm64
           push: ${{ github.event_name != 'workflow_dispatch' || inputs.push }}
           tags: ${{ steps.meta.outputs.tags }}
@@ -174,12 +174,12 @@ jobs:
           exit-code: '0'
           ignore-unfixed: true
           format: sarif
-          output: trivy-prod-${{ matrix.service }}.sarif
+          output: trivy-image-${{ matrix.service }}.sarif
 
       - name: Ensure prod SARIF has valid run
         if: always()
         run: |
-          FILE="trivy-prod-${{ matrix.service }}.sarif"
+          FILE="trivy-image-${{ matrix.service }}.sarif"
           if [ ! -f "$FILE" ] || ! jq -e '.runs | length > 0' "$FILE" > /dev/null 2>&1; then
             echo '{"version":"2.1.0","$schema":"https://json.schemastore.org/sarif-2.1.0.json","runs":[{"tool":{"driver":{"name":"Trivy","version":"0.0.0","informationUri":"https://github.com/aquasecurity/trivy","rules":[]}},"results":[]}]}' > "$FILE"
           fi
@@ -188,8 +188,8 @@ jobs:
         uses: github/codeql-action/upload-sarif@v3
         if: always()
         with:
-          sarif_file: trivy-prod-${{ matrix.service }}.sarif
-          category: trivy-prod-${{ matrix.service }}
+          sarif_file: trivy-image-${{ matrix.service }}.sarif
+          category: trivy-image-${{ matrix.service }}
 
       - name: Warn on prod scan findings
         if: steps.trivy-prod.outcome == 'failure'
