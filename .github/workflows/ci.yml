@@ -227,6 +227,8 @@ jobs:
       AWS_DEFAULT_REGION:    ${{ secrets.AWS_REGION || 'us-east-1' }}
       TF_VAR_dockerhub_username: ${{ secrets.DOCKERHUB_USERNAME }}
       TF_VAR_key_name: keyit
+      TF_VAR_domain_name: ${{ secrets.APP_DOMAIN }}
+      TF_VAR_hosted_zone_id: ${{ secrets.HOSTED_ZONE_ID }}
     steps:
       - uses: actions/checkout@v4
 
