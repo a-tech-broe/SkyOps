@@ -36,6 +36,11 @@ resource "aws_security_group" "monitoring" {
   }
 
   tags = { Name = "skyops-monitoring-sg" }
+
+  lifecycle {
+    prevent_destroy = true
+    ignore_changes  = [ingress, egress]
+  }
 }
 
 # ── Monitoring EC2 Instance ───────────────────────────────────────
@@ -54,7 +59,8 @@ resource "aws_instance" "monitoring" {
   tags = { Name = "skyops-monitoring" }
 
   lifecycle {
-    ignore_changes = [ami, user_data]
+    prevent_destroy = true
+    ignore_changes  = [ami, user_data]
   }
 }
 
@@ -66,4 +72,8 @@ data "aws_eip" "monitoring" {
 resource "aws_eip_association" "monitoring" {
   instance_id   = aws_instance.monitoring.id
   allocation_id = data.aws_eip.monitoring.id
+
+  lifecycle {
+    ignore_changes = [instance_id, allocation_id]
+  }
 }
