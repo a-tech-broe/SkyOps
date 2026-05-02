@@ -136,7 +136,10 @@ All CI gates, plus:
 | `FAA_CLIENT_ID` | Runtime (NOTAMs) |
 | `FAA_CLIENT_SECRET` | Runtime (NOTAMs) |
 | `SEMGREP_APP_TOKEN` | CI — optional, enables cloud dashboard |
-| `EC2_HOST` | deploy.yml — Elastic IP of the EC2 instance |
+| `AWS_ACCESS_KEY_ID` | infra.yml — provisions EC2 via Terraform |
+| `AWS_SECRET_ACCESS_KEY` | infra.yml — provisions EC2 via Terraform |
+| `AWS_REGION` | infra.yml — optional, defaults to `us-east-1` |
+| `EC2_HOST` | deploy.yml — Elastic IP output from Terraform |
 | `EC2_SSH_KEY` | deploy.yml — private key content (PEM) for SSH |
 
 ---
