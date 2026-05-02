@@ -8,6 +8,21 @@ resource "aws_internet_gateway" "skyops" {
   tags   = { Name = "skyops-igw" }
 }
 
+# ── Main route table — clears blackhole, routes internet via IGW ──
+data "aws_route_table" "main" {
+  vpc_id = data.aws_vpc.default.id
+  filter {
+    name   = "association.main"
+    values = ["true"]
+  }
+}
+
+resource "aws_route" "internet" {
+  route_table_id         = data.aws_route_table.main.id
+  destination_cidr_block = "0.0.0.0/0"
+  gateway_id             = aws_internet_gateway.skyops.id
+}
+
 # ── AMI — latest Amazon Linux 2023 x86_64 ────────────────────────
 data "aws_ami" "al2023" {
   most_recent = true

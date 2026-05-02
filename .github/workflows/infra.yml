@@ -56,6 +56,25 @@ jobs:
       - name: Terraform Validate
         run: terraform validate
 
+      # Remove any blackhole 0.0.0.0/0 route from the default VPC route table.
+      # A blackhole appears when a previous IGW was deleted without removing its route.
+      # Terraform cannot create aws_route.internet while a conflicting route exists.
+      - name: Clear blackhole route (if present)
+        if: github.event.inputs.action != 'destroy'
+        run: |
+          REGION="${{ secrets.AWS_REGION || 'us-east-1' }}"
+          VPC_ID=$(aws ec2 describe-vpcs \
+            --filters "Name=isDefault,Values=true" \
+            --query "Vpcs[0].VpcId" --output text --region "$REGION")
+          RTB_ID=$(aws ec2 describe-route-tables \
+            --filters "Name=vpc-id,Values=$VPC_ID" "Name=association.main,Values=true" \
+            --query "RouteTables[0].RouteTableId" --output text --region "$REGION")
+          echo "Default route table: $RTB_ID"
+          aws ec2 delete-route \
+            --route-table-id "$RTB_ID" \
+            --destination-cidr-block 0.0.0.0/0 \
+            --region "$REGION" && echo "Blackhole route removed" || echo "No route to remove"
+
       # Import resources that may already exist in AWS but not in state.
       # '|| true' makes each import a no-op if the resource is already tracked.
       - name: Import existing resources (if any)
