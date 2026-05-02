@@ -5,7 +5,7 @@ output "instance_id" {
 
 output "public_ip" {
   description = "Elastic IP address (SSH / direct access)"
-  value       = aws_eip.skyops.public_ip
+  value       = data.aws_eip.skyops.public_ip
 }
 
 output "alb_dns_name" {
@@ -20,17 +20,17 @@ output "app_url" {
 
 output "ssh_command" {
   description = "SSH one-liner to access the instance"
-  value       = "ssh -i ~/.ssh/${var.key_name}.pem ec2-user@${aws_eip.skyops.public_ip}"
+  value       = "ssh -i ~/.ssh/${var.key_name}.pem ec2-user@${data.aws_eip.skyops.public_ip}"
 }
 
 output "monitoring_public_ip" {
-  description = "Monitoring EC2 Elastic IP — add as MONITOR_HOST GitHub Secret after first deploy"
-  value       = aws_eip.monitoring.public_ip
+  description = "Monitoring EC2 Elastic IP"
+  value       = data.aws_eip.monitoring.public_ip
 }
 
 output "grafana_url" {
   description = "Grafana dashboard URL"
-  value       = "http://${aws_eip.monitoring.public_ip}:3000"
+  value       = "http://${data.aws_eip.monitoring.public_ip}:3000"
 }
 
 output "acm_validation_records" {

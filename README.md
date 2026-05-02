@@ -151,7 +151,8 @@ Runs all security gates, then:
 | `AWS_REGION` | Optional — defaults to `us-east-1` |
 | `TF_BACKEND_BUCKET` | Terraform S3 state bucket name |
 | `TF_BACKEND_DYNAMO_TABLE` | Terraform DynamoDB lock table name |
-| `EC2_HOST` | CD deploy — Elastic IP from `terraform output public_ip` |
+| `EC2_HOST` | App server Elastic IP (pre-existing EIP — set before first deploy) |
+| `MONITOR_HOST` | Monitoring server Elastic IP (pre-existing EIP — set before first deploy) |
 | `EC2_SSH_KEY` | CD deploy — private key content (PEM) |
 | `SEMGREP_APP_TOKEN` | Optional — enables Semgrep cloud dashboard |
 
@@ -194,11 +195,11 @@ The EC2 security group accepts ports 80 and 3001 **only from the ALB**. Port 300
 
 ### First-time setup
 
-1. Add all GitHub Secrets listed above
-2. Create an EC2 key pair named `keyit` in your AWS account
-3. Register a domain and point it at AWS (Route53 recommended)
-4. Push to `main` — `cd.yml` provisions everything, deploys the app, and starts monitoring
-5. Copy `EC2_HOST` from `terraform output public_ip` → add as GitHub Secret
+1. Allocate two Elastic IPs in your AWS account — one for the app server, one for the monitoring server
+2. Add all GitHub Secrets listed above — set `EC2_HOST` and `MONITOR_HOST` to those EIP addresses **before the first run**
+3. Create an EC2 key pair named `keyit` in your AWS account
+4. Register a domain and point it at AWS (Route53 recommended)
+5. Push to `main` — `cd.yml` provisions everything, deploys the app, and starts monitoring
 6. **With Route53 (`HOSTED_ZONE_ID` set):** DNS validation and A records are created automatically
 7. **Without Route53:** Check `terraform output acm_validation_records` and add the CNAMEs at your registrar, then re-run the workflow
 

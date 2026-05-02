@@ -58,13 +58,12 @@ resource "aws_instance" "monitoring" {
   }
 }
 
-# ── Monitoring Elastic IP ─────────────────────────────────────────
-resource "aws_eip" "monitoring" {
-  domain = "vpc"
-  tags   = { Name = "skyops-monitor-eip" }
+# ── Monitoring Elastic IP (pre-existing, managed outside Terraform)
+data "aws_eip" "monitoring" {
+  public_ip = var.monitor_eip
 }
 
 resource "aws_eip_association" "monitoring" {
   instance_id   = aws_instance.monitoring.id
-  allocation_id = aws_eip.monitoring.id
+  allocation_id = data.aws_eip.monitoring.id
 }

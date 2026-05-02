@@ -207,6 +207,8 @@ jobs:
       TF_VAR_key_name: keyit
       TF_VAR_domain_name: ${{ secrets.APP_DOMAIN }}
       TF_VAR_hosted_zone_id: ${{ secrets.HOSTED_ZONE_ID }}
+      TF_VAR_app_eip: ${{ secrets.EC2_HOST }}
+      TF_VAR_monitor_eip: ${{ secrets.MONITOR_HOST }}
 
     steps:
       - uses: actions/checkout@v4
@@ -261,11 +263,9 @@ jobs:
           [ -n "$SG_ID" ] && [ "$SG_ID" != "None" ] && \
             tf_import_if_missing aws_security_group.skyops "$SG_ID"
 
-          EIP_ID=$(aws ec2 describe-addresses \
-            --filters "Name=tag:Name,Values=skyops-eip" \
-            --query "Addresses[0].AllocationId" --output text --region "$REGION" 2>/dev/null || true)
-          [ -n "$EIP_ID" ] && [ "$EIP_ID" != "None" ] && \
-            tf_import_if_missing aws_eip.skyops "$EIP_ID"
+          # EIPs are now data sources — remove from state if previously managed
+          terraform state rm aws_eip.skyops         2>/dev/null && echo "Removed aws_eip.skyops from state" || true
+          terraform state rm aws_eip.monitoring     2>/dev/null && echo "Removed aws_eip.monitoring from state" || true
 
           IGW_ID=$(aws ec2 describe-internet-gateways \
             --filters "Name=tag:Name,Values=skyops-igw" \
