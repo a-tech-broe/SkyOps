@@ -98,6 +98,14 @@ resource "aws_security_group" "skyops" {
   }
 
   ingress {
+    description     = "Grafana dashboard"
+    from_port       = 3000
+    to_port         = 3000
+    protocol        = "tcp"
+    cidr_blocks     = [var.allowed_ssh_cidr]
+  }
+
+  ingress {
     description = "SSH"
     from_port   = 22
     to_port     = 22
