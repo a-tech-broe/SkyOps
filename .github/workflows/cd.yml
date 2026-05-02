@@ -253,20 +253,65 @@ jobs:
             fi
           }
 
+          # ── IAM ─────────────────────────────────────────────────
           tf_import_if_missing aws_iam_role.skyops_ec2 skyops-ec2-role
           tf_import_if_missing aws_iam_instance_profile.skyops_ec2 skyops-ec2-profile
           tf_import_if_missing aws_iam_role_policy.ssm_read skyops-ec2-role:skyops-ssm-read
 
+          # ── Security groups ──────────────────────────────────────
           SG_ID=$(aws ec2 describe-security-groups \
             --filters "Name=group-name,Values=skyops-sg" \
             --query "SecurityGroups[0].GroupId" --output text --region "$REGION" 2>/dev/null || true)
           [ -n "$SG_ID" ] && [ "$SG_ID" != "None" ] && \
             tf_import_if_missing aws_security_group.skyops "$SG_ID"
 
-          # EIPs are now data sources — remove from state if previously managed
-          terraform state rm aws_eip.skyops         2>/dev/null && echo "Removed aws_eip.skyops from state" || true
-          terraform state rm aws_eip.monitoring     2>/dev/null && echo "Removed aws_eip.monitoring from state" || true
+          MONIT_SG_ID=$(aws ec2 describe-security-groups \
+            --filters "Name=group-name,Values=skyops-monitoring-sg" \
+            --query "SecurityGroups[0].GroupId" --output text --region "$REGION" 2>/dev/null || true)
+          [ -n "$MONIT_SG_ID" ] && [ "$MONIT_SG_ID" != "None" ] && \
+            tf_import_if_missing aws_security_group.monitoring "$MONIT_SG_ID"
 
+          # ── EC2 instances ────────────────────────────────────────
+          APP_INSTANCE_ID=$(aws ec2 describe-instances \
+            --filters "Name=tag:Name,Values=skyops-app" \
+                      "Name=instance-state-name,Values=running,stopped" \
+            --query "Reservations[0].Instances[0].InstanceId" \
+            --output text --region "$REGION" 2>/dev/null || true)
+          [ -n "$APP_INSTANCE_ID" ] && [ "$APP_INSTANCE_ID" != "None" ] && \
+            tf_import_if_missing aws_instance.skyops "$APP_INSTANCE_ID"
+
+          MONIT_INSTANCE_ID=$(aws ec2 describe-instances \
+            --filters "Name=tag:Name,Values=skyops-monitoring" \
+                      "Name=instance-state-name,Values=running,stopped" \
+            --query "Reservations[0].Instances[0].InstanceId" \
+            --output text --region "$REGION" 2>/dev/null || true)
+          [ -n "$MONIT_INSTANCE_ID" ] && [ "$MONIT_INSTANCE_ID" != "None" ] && \
+            tf_import_if_missing aws_instance.monitoring "$MONIT_INSTANCE_ID"
+
+          # ── EIP associations ─────────────────────────────────────
+          APP_ASSOC_ID=$(aws ec2 describe-addresses \
+            --filters "Name=public-ip,Values=$TF_VAR_app_eip" \
+            --query "Addresses[0].AssociationId" --output text --region "$REGION" 2>/dev/null || true)
+          [ -n "$APP_ASSOC_ID" ] && [ "$APP_ASSOC_ID" != "None" ] && \
+            tf_import_if_missing aws_eip_association.skyops "$APP_ASSOC_ID"
+
+          MONIT_ASSOC_ID=$(aws ec2 describe-addresses \
+            --filters "Name=public-ip,Values=$TF_VAR_monitor_eip" \
+            --query "Addresses[0].AssociationId" --output text --region "$REGION" 2>/dev/null || true)
+          [ -n "$MONIT_ASSOC_ID" ] && [ "$MONIT_ASSOC_ID" != "None" ] && \
+            tf_import_if_missing aws_eip_association.monitoring "$MONIT_ASSOC_ID"
+
+          # ── Remove managed EIPs from state (now data sources) ────
+          if terraform state show aws_eip.skyops > /dev/null 2>&1; then
+            terraform state rm aws_eip.skyops
+            echo "Removed legacy aws_eip.skyops from state"
+          fi
+          if terraform state show aws_eip.monitoring > /dev/null 2>&1; then
+            terraform state rm aws_eip.monitoring
+            echo "Removed legacy aws_eip.monitoring from state"
+          fi
+
+          # ── Internet gateway ─────────────────────────────────────
           IGW_ID=$(aws ec2 describe-internet-gateways \
             --filters "Name=tag:Name,Values=skyops-igw" \
             --query "InternetGateways[0].InternetGatewayId" --output text --region "$REGION" 2>/dev/null || true)

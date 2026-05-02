@@ -6,6 +6,10 @@ data "aws_vpc" "default" {
 resource "aws_internet_gateway" "skyops" {
   vpc_id = data.aws_vpc.default.id
   tags   = { Name = "skyops-igw" }
+
+  lifecycle {
+    prevent_destroy = true
+  }
 }
 
 # ── Main route table — clears blackhole, routes internet via IGW ──
@@ -21,6 +25,10 @@ resource "aws_route" "internet" {
   route_table_id         = data.aws_route_table.main.id
   destination_cidr_block = "0.0.0.0/0"
   gateway_id             = aws_internet_gateway.skyops.id
+
+  lifecycle {
+    prevent_destroy = true
+  }
 }
 
 # ── AMI — latest Amazon Linux 2023 x86_64 ────────────────────────
@@ -51,6 +59,10 @@ resource "aws_iam_role" "skyops_ec2" {
       Action    = "sts:AssumeRole"
     }]
   })
+
+  lifecycle {
+    prevent_destroy = true
+  }
 }
 
 resource "aws_iam_role_policy" "ssm_read" {
@@ -73,6 +85,10 @@ resource "aws_iam_role_policy" "ssm_read" {
 resource "aws_iam_instance_profile" "skyops_ec2" {
   name = "skyops-ec2-profile"
   role = aws_iam_role.skyops_ec2.name
+
+  lifecycle {
+    prevent_destroy = true
+  }
 }
 
 # ── Security group ────────────────────────────────────────────────
@@ -137,6 +153,11 @@ resource "aws_security_group" "skyops" {
   }
 
   tags = { Name = "skyops-sg" }
+
+  lifecycle {
+    prevent_destroy = true
+    ignore_changes  = [ingress, egress]
+  }
 }
 
 # ── EC2 instance ──────────────────────────────────────────────────
@@ -165,7 +186,8 @@ resource "aws_instance" "skyops" {
   depends_on = [aws_internet_gateway.skyops]
 
   lifecycle {
-    ignore_changes = [ami, user_data]
+    prevent_destroy = true
+    ignore_changes  = [ami, user_data]
   }
 }
 
@@ -177,4 +199,8 @@ data "aws_eip" "skyops" {
 resource "aws_eip_association" "skyops" {
   instance_id   = aws_instance.skyops.id
   allocation_id = data.aws_eip.skyops.id
+
+  lifecycle {
+    ignore_changes = [instance_id, allocation_id]
+  }
 }
