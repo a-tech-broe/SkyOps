@@ -314,8 +314,9 @@ jobs:
           key: ${{ secrets.EC2_SSH_KEY }}
           envs: DOCKERHUB_USERNAME,DB_USER,DB_PASSWORD,FAA_CLIENT_ID,FAA_CLIENT_SECRET,VITE_API_URL
           script: |
-            mkdir -p /opt/skyops
-            cat > /opt/skyops/.env <<EOF
+            set -e
+            sudo mkdir -p /opt/skyops
+            sudo tee /opt/skyops/.env > /dev/null <<EOF
             DB_USER=${DB_USER}
             DB_PASSWORD=${DB_PASSWORD}
             FAA_CLIENT_ID=${FAA_CLIENT_ID}
@@ -324,10 +325,51 @@ jobs:
             DOCKERHUB_USERNAME=${DOCKERHUB_USERNAME}
             IMAGE_TAG=latest
             EOF
+            sudo chmod 600 /opt/skyops/.env
+            sudo tee /opt/skyops/docker-compose.prod.yml > /dev/null <<'COMPOSE'
+            services:
+              db:
+                image: postgres:16-alpine
+                restart: unless-stopped
+                environment:
+                  POSTGRES_DB: skyops
+                  POSTGRES_USER: ${DB_USER}
+                  POSTGRES_PASSWORD: ${DB_PASSWORD}
+                volumes:
+                  - pgdata:/var/lib/postgresql/data
+                healthcheck:
+                  test: ["CMD-SHELL", "pg_isready -U ${DB_USER}"]
+                  interval: 10s
+                  timeout: 5s
+                  retries: 5
+              backend:
+                image: ${DOCKERHUB_USERNAME}/skyops-backend:${IMAGE_TAG:-latest}
+                restart: unless-stopped
+                depends_on:
+                  db:
+                    condition: service_healthy
+                environment:
+                  NODE_ENV: production
+                  PORT: 3001
+                  DB_URL: postgresql://${DB_USER}:${DB_PASSWORD}@db:5432/skyops
+                  FAA_CLIENT_ID: ${FAA_CLIENT_ID}
+                  FAA_CLIENT_SECRET: ${FAA_CLIENT_SECRET}
+                ports:
+                  - "3001:3001"
+              web:
+                image: ${DOCKERHUB_USERNAME}/skyops-web:${IMAGE_TAG:-latest}
+                restart: unless-stopped
+                depends_on:
+                  - backend
+                ports:
+                  - "80:8080"
+            volumes:
+              pgdata:
+            COMPOSE
             cd /opt/skyops
-            docker compose -f docker-compose.prod.yml pull
-            docker compose -f docker-compose.prod.yml up -d --remove-orphans
-            docker image prune -f
+            sudo docker compose -f docker-compose.prod.yml pull
+            sudo docker compose -f docker-compose.prod.yml up -d --remove-orphans
+            sudo docker image prune -f
         env:
           DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
           DB_USER:            ${{ secrets.DB_USER }}
