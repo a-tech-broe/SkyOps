@@ -1,0 +1,70 @@
+name: Infra — Terraform EC2
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'infra/terraform/**'
+  workflow_dispatch:
+    inputs:
+      action:
+        description: 'Terraform action'
+        type: choice
+        options: [plan, apply, destroy]
+        default: plan
+
+permissions:
+  contents: read
+
+env:
+  TF_VERSION: '1.8.5'
+  WORKING_DIR: infra/terraform
+
+jobs:
+  terraform:
+    name: Terraform ${{ github.event.inputs.action || 'apply' }}
+    runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        working-directory: ${{ env.WORKING_DIR }}
+
+    env:
+      AWS_ACCESS_KEY_ID:     ${{ secrets.AWS_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+      AWS_DEFAULT_REGION:    ${{ secrets.AWS_REGION || 'us-east-1' }}
+      TF_VAR_dockerhub_username: ${{ secrets.DOCKERHUB_USERNAME }}
+      TF_VAR_key_name:       keyit.pem
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+
+      - name: Terraform Init
+        run: terraform init
+
+      - name: Terraform Validate
+        run: terraform validate
+
+      - name: Terraform Plan
+        id: plan
+        run: terraform plan -out=tfplan -input=false
+        continue-on-error: ${{ github.event.inputs.action == 'destroy' }}
+
+      - name: Terraform Apply
+        if: |
+          (github.event_name == 'push' || github.event.inputs.action == 'apply') &&
+          steps.plan.outcome == 'success'
+        run: terraform apply -auto-approve -input=false tfplan
+
+      - name: Terraform Destroy
+        if: github.event.inputs.action == 'destroy'
+        run: terraform destroy -auto-approve -input=false
+
+      - name: Output EC2 details
+        if: steps.plan.outcome == 'success' && github.event.inputs.action != 'destroy'
+        run: terraform output
