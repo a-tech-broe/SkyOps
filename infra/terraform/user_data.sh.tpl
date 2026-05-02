@@ -1,51 +1,29 @@
 #!/bin/bash
 set -euo pipefail
+exec > /var/log/skyops-init.log 2>&1
 
-# ── Docker ────────────────────────────────────────────────────────
+# ── Docker + Compose plugin (Amazon Linux 2023 repo — no curl needed) ─
 dnf install -y docker
 systemctl enable --now docker
 usermod -aG docker ec2-user
 
-# ── Docker Compose plugin ─────────────────────────────────────────
-mkdir -p /usr/local/lib/docker/cli-plugins
-curl -SL "https://github.com/docker/compose/releases/download/v2.27.1/docker-compose-linux-x86_64" \
-  -o /usr/local/lib/docker/cli-plugins/docker-compose
-chmod +x /usr/local/lib/docker/cli-plugins/docker-compose
+# Install Docker Compose plugin from dnf (AL2023 ships it)
+dnf install -y docker-compose-plugin || {
+  # Fallback: download binary directly if package unavailable
+  mkdir -p /usr/local/lib/docker/cli-plugins
+  curl -SL "https://github.com/docker/compose/releases/download/v2.27.1/docker-compose-linux-x86_64" \
+    -o /usr/local/lib/docker/cli-plugins/docker-compose
+  chmod +x /usr/local/lib/docker/cli-plugins/docker-compose
+}
 
 # ── App directory ─────────────────────────────────────────────────
 mkdir -p /opt/skyops
-cd /opt/skyops
-
-# ── Fetch secrets from SSM Parameter Store ────────────────────────
-fetch_param() {
-  aws ssm get-parameter \
-    --name "${ssm_prefix}/$1" \
-    --with-decryption \
-    --query "Parameter.Value" \
-    --output text \
-    --region "${aws_region}"
-}
-
-DB_PASSWORD=$(fetch_param DB_PASSWORD)
-FAA_CLIENT_ID=$(fetch_param FAA_CLIENT_ID)
-FAA_CLIENT_SECRET=$(fetch_param FAA_CLIENT_SECRET)
-PUBLIC_IP=$(curl -sf http://169.254.169.254/latest/meta-data/public-ipv4 || echo "localhost")
-
-# ── .env ──────────────────────────────────────────────────────────
-# $${VAR} escapes to $${VAR} after Terraform rendering; bash expands at runtime
-cat > /opt/skyops/.env <<EOF
-DB_USER=skyops
-DB_PASSWORD=$${DB_PASSWORD}
-FAA_CLIENT_ID=$${FAA_CLIENT_ID}
-FAA_CLIENT_SECRET=$${FAA_CLIENT_SECRET}
-VITE_API_URL=http://$${PUBLIC_IP}:3001
-DOCKERHUB_USERNAME=${dockerhub_username}
-IMAGE_TAG=${image_tag}
-EOF
+chown ec2-user:ec2-user /opt/skyops
 
 # ── docker-compose.prod.yml ───────────────────────────────────────
-# Written inline so the instance is self-contained (no repo clone needed).
-# $${VAR} here renders to $${VAR} in the file; Docker Compose substitutes from .env
+# Written here so the instance is self-contained.
+# The deploy workflow writes /opt/skyops/.env before running compose.
+# $${VAR} renders to $${VAR} after Terraform; Docker Compose substitutes from .env.
 cat > /opt/skyops/docker-compose.prod.yml <<'COMPOSE'
 services:
   db:
@@ -90,20 +68,20 @@ volumes:
   pgdata:
 COMPOSE
 
-# ── Start containers ──────────────────────────────────────────────
-docker compose -f /opt/skyops/docker-compose.prod.yml pull
-docker compose -f /opt/skyops/docker-compose.prod.yml up -d
+chown ec2-user:ec2-user /opt/skyops/docker-compose.prod.yml
 
-# ── Systemd service (restart on reboot) ───────────────────────────
+# ── Systemd service — starts containers on reboot once .env exists ─
 cat > /etc/systemd/system/skyops.service <<'SERVICE'
 [Unit]
 Description=SkyOps containers
-After=docker.service
+After=docker.service network-online.target
 Requires=docker.service
+ConditionPathExists=/opt/skyops/.env
 
 [Service]
 Type=oneshot
 RemainAfterExit=yes
+User=ec2-user
 WorkingDirectory=/opt/skyops
 ExecStart=/usr/bin/docker compose -f /opt/skyops/docker-compose.prod.yml up -d
 ExecStop=/usr/bin/docker compose -f /opt/skyops/docker-compose.prod.yml down
@@ -115,3 +93,5 @@ SERVICE
 
 systemctl daemon-reload
 systemctl enable skyops
+
+echo "skyops-init complete — Docker ready, awaiting first deploy"
