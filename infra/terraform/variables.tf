@@ -38,3 +38,14 @@ variable "ssm_prefix" {
   type        = string
   default     = "/skyops"
 }
+
+variable "domain_name" {
+  description = "Domain name for the ACM certificate and app URL (e.g. skyops.example.com)"
+  type        = string
+}
+
+variable "hosted_zone_id" {
+  description = "Route53 hosted zone ID — if set, DNS validation records and A records are created automatically"
+  type        = string
+  default     = ""
+}

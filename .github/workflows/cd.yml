@@ -203,6 +203,8 @@ jobs:
       AWS_DEFAULT_REGION:    ${{ secrets.AWS_REGION || 'us-east-1' }}
       TF_VAR_dockerhub_username: ${{ secrets.DOCKERHUB_USERNAME }}
       TF_VAR_key_name: keyit
+      TF_VAR_domain_name: ${{ secrets.APP_DOMAIN }}
+      TF_VAR_hosted_zone_id: ${{ secrets.HOSTED_ZONE_ID }}
 
     steps:
       - uses: actions/checkout@v4
@@ -387,7 +389,7 @@ jobs:
           DB_PASSWORD:        ${{ secrets.DB_PASSWORD }}
           FAA_CLIENT_ID:      ${{ secrets.FAA_CLIENT_ID }}
           FAA_CLIENT_SECRET:  ${{ secrets.FAA_CLIENT_SECRET }}
-          VITE_API_URL:       http://${{ secrets.EC2_HOST }}:3001
+          VITE_API_URL:       https://${{ secrets.APP_DOMAIN }}
 
   # ── 7. Production smoke test ──────────────────────────────────────
   smoke-prod:
@@ -401,25 +403,25 @@ jobs:
 
       - name: API health check
         run: |
-          curl -sf "http://${{ secrets.EC2_HOST }}:3001/health" \
+          curl -sf "https://${{ secrets.APP_DOMAIN }}/health" \
             | jq -e '.status == "ok"' \
             || (echo "::error::API health check failed" && exit 1)
 
       - name: Web health check
         run: |
-          curl -sf "http://${{ secrets.EC2_HOST }}/" \
+          curl -sf "https://${{ secrets.APP_DOMAIN }}/" \
             | grep -qi "<!DOCTYPE html>" \
             || (echo "::error::Web health check failed" && exit 1)
 
       - name: Weather API smoke test
         run: |
-          curl -sf "http://${{ secrets.EC2_HOST }}:3001/api/weather/metar?ids=KORD" \
+          curl -sf "https://${{ secrets.APP_DOMAIN }}/api/weather/metar?ids=KORD" \
             && echo "Weather API OK" \
             || echo "::warning::Weather API unavailable (external dependency)"
 
       - name: Airport API smoke test
         run: |
-          curl -sf "http://${{ secrets.EC2_HOST }}:3001/api/airports?ids=KORD" \
+          curl -sf "https://${{ secrets.APP_DOMAIN }}/api/airports?ids=KORD" \
             && echo "Airports API OK" \
             || echo "::warning::Airports API unavailable (external dependency)"
 
