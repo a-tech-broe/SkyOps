@@ -90,6 +90,15 @@ jobs:
             terraform import aws_eip.skyops "$EIP_ID" 2>/dev/null || true
           fi
 
+          # Internet Gateway — look up by tag Name=skyops-igw
+          IGW_ID=$(aws ec2 describe-internet-gateways \
+            --filters "Name=tag:Name,Values=skyops-igw" \
+            --query "InternetGateways[0].InternetGatewayId" \
+            --output text --region "$REGION" 2>/dev/null || true)
+          if [ -n "$IGW_ID" ] && [ "$IGW_ID" != "None" ]; then
+            terraform import aws_internet_gateway.skyops "$IGW_ID" 2>/dev/null || true
+          fi
+
       - name: Terraform Plan
         id: plan
         run: terraform plan -out=tfplan -input=false
