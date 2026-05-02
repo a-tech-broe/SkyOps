@@ -480,6 +480,7 @@ jobs:
           host: ${{ secrets.EC2_HOST }}
           username: ec2-user
           key: ${{ secrets.EC2_SSH_KEY }}
+          envs: MONITOR_IP
           script: |
             set -e
             sudo mkdir -p /opt/exporters
@@ -538,6 +539,16 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Wait for SSH on monitoring EC2
+        run: |
+          for i in $(seq 1 24); do
+            nc -z -w5 "${{ secrets.MONITOR_HOST }}" 22 && echo "SSH ready after $((i * 10))s" && exit 0
+            echo "Attempt $i/24: port 22 not yet open, retrying in 10s..."
+            sleep 10
+          done
+          echo "::error::Monitoring EC2 SSH port 22 never became reachable after 4 minutes"
+          exit 1
+
       - name: Upload monitoring configs to monitoring EC2
         uses: appleboy/scp-action@v0.1.7
         with:
@@ -554,6 +565,7 @@ jobs:
           host: ${{ secrets.MONITOR_HOST }}
           username: ec2-user
           key: ${{ secrets.EC2_SSH_KEY }}
+          envs: GRAFANA_ADMIN_PASSWORD,APP_EC2_IP,APP_DOMAIN
           script: |
             set -e
             sudo mkdir -p /opt/monit
