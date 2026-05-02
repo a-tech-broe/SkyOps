@@ -1,0 +1,54 @@
+groups:
+  - name: skyops-app
+    rules:
+
+      - alert: BackendDown
+        expr: up{job="skyops-backend"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "SkyOps backend is down"
+          description: "The backend API has been unreachable for more than 1 minute."
+
+      - alert: HighErrorRate
+        expr: |
+          sum(rate(skyops_http_requests_total{status=~"5.."}[5m]))
+          /
+          sum(rate(skyops_http_requests_total[5m])) > 0.05
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High HTTP error rate"
+          description: "More than 5% of requests are returning 5xx errors."
+
+      - alert: SlowAPIResponse
+        expr: |
+          histogram_quantile(0.95,
+            sum(rate(skyops_http_request_duration_seconds_bucket[5m])) by (le, path)
+          ) > 2
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Slow API responses on {{ $labels.path }}"
+          description: "P95 latency on {{ $labels.path }} exceeds 2 seconds."
+
+      - alert: EndpointDown
+        expr: probe_success{job="blackbox-http"} == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Endpoint {{ $labels.instance }} is down"
+          description: "Blackbox probe has been failing for more than 2 minutes."
+
+      - alert: HighRequestRate
+        expr: sum(rate(skyops_http_requests_total[5m])) > 100
+        for: 5m
+        labels:
+          severity: info
+        annotations:
+          summary: "Unusually high request rate"
+          description: "More than 100 req/s sustained for 5 minutes."

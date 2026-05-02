@@ -18,6 +18,7 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+    networks: [skyops]
 
   backend:
     image: ${DOCKERHUB_USERNAME}/skyops-backend:${IMAGE_TAG:-latest}
@@ -33,6 +34,7 @@ services:
       FAA_CLIENT_SECRET: ${FAA_CLIENT_SECRET}
     ports:
       - "3001:3001"
+    networks: [skyops]
 
   web:
     image: ${DOCKERHUB_USERNAME}/skyops-web:${IMAGE_TAG:-latest}
@@ -41,6 +43,12 @@ services:
       - backend
     ports:
       - "80:8080"
+    networks: [skyops]
 
 volumes:
   pgdata:
+
+networks:
+  skyops:
+    name: skyops_default
+    driver: bridge
