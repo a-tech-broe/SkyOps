@@ -10,9 +10,14 @@ export default function NavBar() {
   return (
     <nav className="bg-slate-900 border-b border-slate-800">
       <div className="container mx-auto px-4 max-w-5xl flex items-center h-14 gap-8">
-        <span className="text-blue-400 font-bold text-lg tracking-tight">
-          ✈ SkyOps
-        </span>
+        <div className="flex flex-col leading-tight">
+          <span className="text-blue-400 font-bold text-lg tracking-tight">
+            ✈ SkyOps
+          </span>
+          <span className="text-slate-500 text-[10px] tracking-wide">
+            powered by atechbroe
+          </span>
+        </div>
         <div className="flex gap-1">
           {links.map(({ to, label }) => (
             <NavLink
