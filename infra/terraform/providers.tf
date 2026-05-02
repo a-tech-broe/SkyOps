@@ -7,12 +7,14 @@ terraform {
     }
   }
 
-  # Uncomment to persist state remotely
-  # backend "s3" {
-  #   bucket = "skyops-tfstate"
-  #   key    = "ec2/terraform.tfstate"
-  #   region = "us-east-1"
-  # }
+  backend "s3" {
+    # Values injected via -backend-config in infra.yml (kept out of source)
+    # bucket         = var TF_BACKEND_BUCKET
+    # key            = "ec2/terraform.tfstate"
+    # region         = var TF_BACKEND_REGION
+    # dynamodb_table = var TF_BACKEND_DYNAMO_TABLE
+    # encrypt        = true
+  }
 }
 
 provider "aws" {
