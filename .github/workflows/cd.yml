@@ -275,6 +275,17 @@ jobs:
       - name: Terraform Apply
         run: terraform apply -auto-approve -input=false tfplan
 
+      - name: Wait for EC2 instance to pass status checks
+        run: |
+          REGION="${{ secrets.AWS_REGION || 'us-east-1' }}"
+          INSTANCE_ID=$(aws ec2 describe-instances \
+            --filters "Name=tag:Name,Values=skyops-app" "Name=instance-state-name,Values=running" \
+            --query "Reservations[0].Instances[0].InstanceId" \
+            --output text --region "$REGION")
+          echo "Waiting for instance $INSTANCE_ID to pass status checks..."
+          aws ec2 wait instance-status-ok --instance-ids "$INSTANCE_ID" --region "$REGION"
+          echo "Instance is ready"
+
       - name: Terraform Outputs
         run: terraform output
 

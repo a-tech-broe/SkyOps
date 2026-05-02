@@ -149,7 +149,7 @@ resource "aws_instance" "skyops" {
   depends_on = [aws_internet_gateway.skyops]
 
   lifecycle {
-    ignore_changes = [ami]
+    ignore_changes = [ami, user_data]
   }
 }
 
