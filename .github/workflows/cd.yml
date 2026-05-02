@@ -285,6 +285,16 @@ jobs:
     needs: [infra-apply]
 
     steps:
+      - name: Wait for SSH to be ready
+        run: |
+          for i in $(seq 1 24); do
+            nc -z -w5 "${{ secrets.EC2_HOST }}" 22 && echo "SSH ready after $((i * 10))s" && exit 0
+            echo "Attempt $i/24: port 22 not yet open, retrying in 10s..."
+            sleep 10
+          done
+          echo "::error::EC2 SSH port 22 never became reachable after 4 minutes"
+          exit 1
+
       - name: Write .env and restart containers
         uses: appleboy/ssh-action@v1.2.0
         with:
