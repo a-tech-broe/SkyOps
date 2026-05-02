@@ -25,23 +25,22 @@ Aviation tools for GA pilots — Weather · NOTAMs · Airports · Currency
 
 ---
 
-## Repository layout
+## Repository Layout
 
 ```
 SkyOps/
-├── app/                        # All application source code
+├── app/
 │   ├── backend/                # Node.js 22 + Express + TypeScript API
 │   ├── web/                    # React 18 + Vite + Tailwind CSS
 │   ├── mobile/                 # Expo (React Native) + Expo Router
 │   ├── docker-compose.yml      # Build from source (local prod simulation)
 │   └── docker-compose.dev.yml  # Dev with hot reload
 ├── infra/
-│   ├── terraform/              # AWS EC2 provisioning (Terraform)
-│   └── docker-compose.prod.yml # EC2 runtime compose (DockerHub images)
+│   ├── terraform/              # AWS EC2 provisioning (Terraform ≥ 1.6)
+│   └── docker-compose.prod.yml # EC2 runtime compose (pre-built DockerHub images)
 └── .github/workflows/
-    ├── ci.yml                  # PR / dev: lint · scan · build
-    ├── cd.yml                  # main: build · sign · push to DockerHub
-    └── deploy.yml              # Auto-deploy to EC2 after CD succeeds
+    ├── ci.yml   # PR / dev — lint · scan · build · smoke test · infra plan
+    └── cd.yml   # main    — build · push · infra apply · deploy · smoke test
 ```
 
 ---
@@ -55,6 +54,7 @@ SkyOps/
 | API | Node.js 22 + Express + TypeScript |
 | Database | PostgreSQL 16 |
 | Containers | Docker + Docker Compose |
+| Infra | Terraform → AWS EC2 (Amazon Linux 2023) |
 
 ---
 
@@ -82,11 +82,6 @@ cp app/.env.example app/.env
 docker compose -f app/docker-compose.yml up --build -d
 ```
 
-| Service | URL |
-|---|---|
-| Web | http://localhost:80 |
-| API | http://localhost:3001 |
-
 ---
 
 ## Environment Variables
@@ -104,88 +99,91 @@ docker compose -f app/docker-compose.yml up --build -d
 
 ## CI/CD Pipeline
 
-GitHub Actions runs on every PR and push to `dev`.
+Two workflows cover the full DevSecOps lifecycle.
 
-### CI (`ci.yml`) — PR / dev branch
+### `ci.yml` — every PR and `dev` push
 
-| Stage | Tool | Gate |
+| Job | Tool | Gate |
 |---|---|---|
-| Secret scan | Gitleaks | Block on secrets |
-| Dockerfile lint | Hadolint | Block on errors |
-| Type check | TypeScript (`tsc --noEmit`) | Block on type errors |
-| Dependency audit | `npm audit` | Block on CRITICAL CVEs |
+| Secret scan | Gitleaks (full history) | Blocks |
+| Lint & type check | Hadolint + `tsc --noEmit` | Blocks |
+| Dependency audit | `npm audit --audit-level=critical` | Blocks |
 | SAST | Semgrep | SARIF → Security tab |
-| Image build + scan | Docker Buildx + Trivy | Warning (SARIF → Security tab) |
+| Build & CVE scan | Docker Buildx + Trivy (FS + image) | Warn, SARIF → Security tab |
+| **Smoke test** | Local containers — `/health`, web HTML, weather, airports | Blocks |
+| Infra plan | `terraform plan` preview | Blocks (PR only) |
 
-### CD (`cd.yml`) — `main` / tags
+### `cd.yml` — merge to `main` / version tags
 
-All CI gates, plus:
+Runs all security gates, then:
 
-| Stage | Tool |
+| Job | What happens |
 |---|---|
-| Multi-arch image push | DockerHub (`linux/amd64` + `linux/arm64`) |
-| Keyless image signing | Cosign (OIDC — no key secrets needed) |
-| SBOM generation | Syft / anchore/sbom-action |
+| Build & push | Multi-arch (`amd64` + `arm64`) → DockerHub + Trivy scan + Cosign sign + SBOM |
+| Infra apply | `terraform apply` — provisions or updates the EC2 instance |
+| Deploy | SSH → writes `.env` from GitHub Secrets → `docker compose pull && up` |
+| Production smoke test | `curl` production `/health`, web HTML, weather and airport endpoints |
+| Summary | Release digest table + `cosign verify` instructions |
 
-### GitHub Secrets required
+### GitHub Secrets
 
 | Secret | Used by |
 |---|---|
-| `DOCKERHUB_USERNAME` | CD — push + sign |
-| `DOCKERHUB_TOKEN` | CD — push + sign |
-| `FAA_CLIENT_ID` | Runtime (NOTAMs) |
-| `FAA_CLIENT_SECRET` | Runtime (NOTAMs) |
-| `SEMGREP_APP_TOKEN` | CI — optional, enables cloud dashboard |
-| `AWS_ACCESS_KEY_ID` | infra.yml — provisions EC2 via Terraform |
-| `AWS_SECRET_ACCESS_KEY` | infra.yml — provisions EC2 via Terraform |
-| `AWS_REGION` | infra.yml — optional, defaults to `us-east-1` |
-| `EC2_HOST` | deploy.yml — Elastic IP output from Terraform |
-| `EC2_SSH_KEY` | deploy.yml — private key content (PEM) for SSH |
+| `DOCKERHUB_USERNAME` | CD — push, sign, deploy |
+| `DOCKERHUB_TOKEN` | CD — push |
+| `DB_USER` | CD — written to EC2 `.env` |
+| `DB_PASSWORD` | CD — written to EC2 `.env` |
+| `FAA_CLIENT_ID` | CD — written to EC2 `.env` |
+| `FAA_CLIENT_SECRET` | CD — written to EC2 `.env` |
+| `AWS_ACCESS_KEY_ID` | CI infra plan + CD infra apply |
+| `AWS_SECRET_ACCESS_KEY` | CI infra plan + CD infra apply |
+| `AWS_REGION` | Optional — defaults to `us-east-1` |
+| `TF_BACKEND_BUCKET` | Terraform S3 state bucket name |
+| `TF_BACKEND_DYNAMO_TABLE` | Terraform DynamoDB lock table name |
+| `EC2_HOST` | CD deploy + smoke test — Elastic IP from `terraform output` |
+| `EC2_SSH_KEY` | CD deploy — private key content (PEM) |
+| `SEMGREP_APP_TOKEN` | Optional — enables Semgrep cloud dashboard |
 
 ---
 
-## EC2 Deployment (Terraform)
+## EC2 Deployment
 
-Infrastructure lives in `infra/terraform/`. It provisions an Amazon Linux 2023 EC2 instance that pulls pre-built images from DockerHub and runs them via Docker Compose.
-
-### One-time: store secrets in SSM Parameter Store
-
-```bash
-aws ssm put-parameter --name /skyops/DB_PASSWORD      --value "..." --type SecureString
-aws ssm put-parameter --name /skyops/FAA_CLIENT_ID    --value "..." --type SecureString
-aws ssm put-parameter --name /skyops/FAA_CLIENT_SECRET --value "..." --type SecureString
-```
-
-### Provision
-
-```bash
-cd infra/terraform
-terraform init
-terraform apply \
-  -var="key_name=your-ec2-keypair" \
-  -var="dockerhub_username=your-dockerhub-username" \
-  -var="allowed_ssh_cidr=$(curl -s ifconfig.me)/32"
-```
-
-Terraform outputs the Elastic IP and an SSH command. Add the IP as `EC2_HOST` in GitHub Secrets to enable automatic deploys.
+Infrastructure is in `infra/terraform/`. Provisioning happens automatically on every merge to `main` via `cd.yml`. Secrets are written to the instance during each deploy — no SSM or manual server access needed.
 
 ### What gets provisioned
 
 | Resource | Detail |
 |---|---|
 | EC2 | Amazon Linux 2023, `t3.small`, 20 GB gp3 encrypted |
-| IAM role | SSM Parameter Store read-only (`/skyops/*`) |
-| Security group | 80 + 443 public, 22 restricted to `allowed_ssh_cidr` |
-| Elastic IP | Static address, survives instance stops |
-| Systemd service | Containers auto-start on reboot |
+| Internet Gateway | Attached to default VPC, route table managed by Terraform |
+| Security group | 80 + 443 public; 22 restricted to `allowed_ssh_cidr` |
+| IAM role | Least-privilege — SSM read-only scoped to `/skyops/*` |
+| Elastic IP | Static address, survives stops/restarts |
+| Systemd service | Auto-starts containers on reboot once `.env` exists |
 
-### Subsequent deploys
+### First-time setup
 
-After every merge to `main`, `cd.yml` pushes new images and `deploy.yml` automatically SSHes into EC2 and runs:
+1. Add all GitHub Secrets listed above
+2. Create an EC2 key pair named `keyit` in your AWS account
+3. Push to `main` — `cd.yml` will provision the instance, deploy the app, and run smoke tests
+4. Copy `EC2_HOST` from the `terraform output` step in the workflow run → add as GitHub Secret
+
+### Manual infra operations
 
 ```bash
-docker compose -f docker-compose.prod.yml pull
-docker compose -f docker-compose.prod.yml up -d --remove-orphans
+cd infra/terraform
+
+# Init with your S3 backend
+terraform init \
+  -backend-config="bucket=YOUR_BUCKET" \
+  -backend-config="key=ec2/terraform.tfstate" \
+  -backend-config="region=us-east-1" \
+  -backend-config="dynamodb_table=YOUR_LOCK_TABLE" \
+  -backend-config="encrypt=true"
+
+terraform plan   # preview
+terraform apply  # provision
+terraform destroy # tear down
 ```
 
 ---
