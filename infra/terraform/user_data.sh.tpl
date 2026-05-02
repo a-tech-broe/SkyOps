@@ -32,7 +32,7 @@ FAA_CLIENT_SECRET=$(fetch_param FAA_CLIENT_SECRET)
 PUBLIC_IP=$(curl -sf http://169.254.169.254/latest/meta-data/public-ipv4 || echo "localhost")
 
 # ── .env ──────────────────────────────────────────────────────────
-# $${VAR} → ${VAR} after Terraform template rendering (bash expands at runtime)
+# $${VAR} escapes to $${VAR} after Terraform rendering; bash expands at runtime
 cat > /opt/skyops/.env <<EOF
 DB_USER=skyops
 DB_PASSWORD=$${DB_PASSWORD}
@@ -45,7 +45,7 @@ EOF
 
 # ── docker-compose.prod.yml ───────────────────────────────────────
 # Written inline so the instance is self-contained (no repo clone needed).
-# $${VAR} in this heredoc → ${VAR} in the file → Docker Compose reads from .env
+# $${VAR} here renders to $${VAR} in the file; Docker Compose substitutes from .env
 cat > /opt/skyops/docker-compose.prod.yml <<'COMPOSE'
 services:
   db:
