@@ -34,7 +34,7 @@ jobs:
       AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
       AWS_DEFAULT_REGION:    ${{ secrets.AWS_REGION || 'us-east-1' }}
       TF_VAR_dockerhub_username: ${{ secrets.DOCKERHUB_USERNAME }}
-      TF_VAR_key_name:       keyit.pem
+      TF_VAR_key_name:       keyit
 
     steps:
       - uses: actions/checkout@v4
@@ -44,11 +44,51 @@ jobs:
         with:
           terraform_version: ${{ env.TF_VERSION }}
 
-      - name: Terraform Init
-        run: terraform init
+      - name: Terraform Init (S3 backend)
+        run: |
+          terraform init \
+            -backend-config="bucket=${{ secrets.TF_BACKEND_BUCKET }}" \
+            -backend-config="key=ec2/terraform.tfstate" \
+            -backend-config="region=${{ secrets.AWS_REGION || 'us-east-1' }}" \
+            -backend-config="dynamodb_table=${{ secrets.TF_BACKEND_DYNAMO_TABLE }}" \
+            -backend-config="encrypt=true"
 
       - name: Terraform Validate
         run: terraform validate
+
+      # Import resources that may already exist in AWS but not in state.
+      # '|| true' makes each import a no-op if the resource is already tracked.
+      - name: Import existing resources (if any)
+        if: github.event.inputs.action != 'destroy'
+        run: |
+          REGION="${{ secrets.AWS_REGION || 'us-east-1' }}"
+
+          # IAM role
+          terraform import aws_iam_role.skyops_ec2 skyops-ec2-role 2>/dev/null || true
+
+          # IAM instance profile
+          terraform import aws_iam_instance_profile.skyops_ec2 skyops-ec2-profile 2>/dev/null || true
+
+          # IAM inline policy
+          terraform import aws_iam_role_policy.ssm_read skyops-ec2-role:skyops-ssm-read 2>/dev/null || true
+
+          # Security group — look up by name in the default VPC
+          SG_ID=$(aws ec2 describe-security-groups \
+            --filters "Name=group-name,Values=skyops-sg" \
+            --query "SecurityGroups[0].GroupId" \
+            --output text --region "$REGION" 2>/dev/null || true)
+          if [ -n "$SG_ID" ] && [ "$SG_ID" != "None" ]; then
+            terraform import aws_security_group.skyops "$SG_ID" 2>/dev/null || true
+          fi
+
+          # EIP — look up by allocation ID tag Name=skyops-eip
+          EIP_ID=$(aws ec2 describe-addresses \
+            --filters "Name=tag:Name,Values=skyops-eip" \
+            --query "Addresses[0].AllocationId" \
+            --output text --region "$REGION" 2>/dev/null || true)
+          if [ -n "$EIP_ID" ] && [ "$EIP_ID" != "None" ]; then
+            terraform import aws_eip.skyops "$EIP_ID" 2>/dev/null || true
+          fi
 
       - name: Terraform Plan
         id: plan
