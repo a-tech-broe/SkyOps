@@ -315,6 +315,16 @@ jobs:
           envs: DOCKERHUB_USERNAME,DB_USER,DB_PASSWORD,FAA_CLIENT_ID,FAA_CLIENT_SECRET,VITE_API_URL
           script: |
             set -e
+            # Install Docker + Compose plugin if not already present
+            if ! command -v docker &>/dev/null; then
+              sudo dnf install -y docker
+              sudo systemctl enable --now docker
+            fi
+            if ! sudo docker compose version &>/dev/null; then
+              sudo dnf install -y docker-compose-plugin || \
+                (curl -fsSL "https://github.com/docker/compose/releases/latest/download/docker-compose-linux-x86_64" \
+                  -o /usr/local/bin/docker-compose && sudo chmod +x /usr/local/bin/docker-compose)
+            fi
             sudo mkdir -p /opt/skyops
             sudo tee /opt/skyops/.env > /dev/null <<EOF
             DB_USER=${DB_USER}
