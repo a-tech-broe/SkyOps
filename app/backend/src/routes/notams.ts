@@ -24,11 +24,16 @@ router.get('/:icao', async (req, res, next) => {
       },
     });
 
+    if (upstream.status === 404) {
+      return res.json({ pageSize: 0, pageNum: 1, totalCount: 0, items: [] });
+    }
+
     if (!upstream.ok) {
       throw new Error(`FAA API error: ${upstream.status}`);
     }
 
-    const data = await upstream.json();
+    const text = await upstream.text();
+    const data = text && text.trim() ? JSON.parse(text) : { pageSize: 0, pageNum: 1, totalCount: 0, items: [] };
     res.json(data);
   } catch (err) {
     next(err);

@@ -3,7 +3,9 @@ const BASE = 'https://aviationweather.gov/api/data';
 async function get<T>(path: string): Promise<T> {
   const res = await fetch(`${BASE}${path}`);
   if (!res.ok) throw new Error(`AviationWeather API error: ${res.status}`);
-  return res.json() as Promise<T>;
+  const text = await res.text();
+  if (!text || !text.trim()) return [] as unknown as T;
+  return JSON.parse(text) as T;
 }
 
 export type CloudLayer = { cover: string; base: number };
