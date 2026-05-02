@@ -110,7 +110,6 @@ Two workflows cover the full DevSecOps lifecycle.
 | Dependency audit | `npm audit --audit-level=critical` | Blocks |
 | SAST | Semgrep | SARIF → Security tab |
 | Build & CVE scan | Docker Buildx + Trivy (FS + image) | Warn, SARIF → Security tab |
-| **Smoke test** | Local containers — `/health`, web HTML, weather, airports | Blocks |
 | Infra plan | `terraform plan` preview | Blocks (PR only) |
 
 ### `cd.yml` — merge to `main` / version tags
