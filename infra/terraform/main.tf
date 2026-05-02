@@ -169,13 +169,12 @@ resource "aws_instance" "skyops" {
   }
 }
 
-# ── Elastic IP ────────────────────────────────────────────────────
-resource "aws_eip" "skyops" {
-  domain = "vpc"
-  tags   = { Name = "skyops-eip" }
+# ── Elastic IP (pre-existing, managed outside Terraform) ─────────
+data "aws_eip" "skyops" {
+  public_ip = var.app_eip
 }
 
 resource "aws_eip_association" "skyops" {
   instance_id   = aws_instance.skyops.id
-  allocation_id = aws_eip.skyops.id
+  allocation_id = data.aws_eip.skyops.id
 }

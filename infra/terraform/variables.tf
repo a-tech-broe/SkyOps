@@ -49,3 +49,13 @@ variable "hosted_zone_id" {
   type        = string
   default     = ""
 }
+
+variable "app_eip" {
+  description = "Existing Elastic IP for the app EC2 (value of EC2_HOST GitHub Secret)"
+  type        = string
+}
+
+variable "monitor_eip" {
+  description = "Existing Elastic IP for the monitoring EC2 (value of MONITOR_HOST GitHub Secret)"
+  type        = string
+}
