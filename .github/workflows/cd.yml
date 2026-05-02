@@ -194,6 +194,8 @@ jobs:
     name: Infra Apply (Terraform)
     runs-on: ubuntu-latest
     needs: [build-push]
+    outputs:
+      monitor_ip: ${{ steps.tf-outputs.outputs.monitor_ip }}
     defaults:
       run:
         working-directory: infra/terraform
@@ -289,7 +291,24 @@ jobs:
           echo "Instance is ready"
 
       - name: Terraform Outputs
-        run: terraform output
+        id: tf-outputs
+        run: |
+          terraform output
+          MONITOR_IP=$(terraform output -raw monitoring_public_ip 2>/dev/null || echo "")
+          echo "monitor_ip=$MONITOR_IP" >> $GITHUB_OUTPUT
+
+      - name: Wait for monitoring EC2 to pass status checks
+        run: |
+          REGION="${{ secrets.AWS_REGION || 'us-east-1' }}"
+          MONITOR_ID=$(aws ec2 describe-instances \
+            --filters "Name=tag:Name,Values=skyops-monitoring" "Name=instance-state-name,Values=running" \
+            --query "Reservations[0].Instances[0].InstanceId" \
+            --output text --region "$REGION")
+          if [ -n "$MONITOR_ID" ] && [ "$MONITOR_ID" != "None" ]; then
+            echo "Waiting for monitoring instance $MONITOR_ID..."
+            aws ec2 wait instance-status-ok --instance-ids "$MONITOR_ID" --region "$REGION"
+            echo "Monitoring instance ready"
+          fi
 
   # ── 6. Deploy — write .env + restart containers ──────────────────
   deploy:
@@ -391,43 +410,181 @@ jobs:
           FAA_CLIENT_SECRET:  ${{ secrets.FAA_CLIENT_SECRET }}
           VITE_API_URL:       https://${{ secrets.APP_DOMAIN }}
 
-  # ── 7. Deploy monitoring stack ───────────────────────────────────
-  deploy-monitoring:
-    name: Deploy Monitoring Stack
+  # ── 7. Deploy exporters to app EC2 ───────────────────────────────
+  deploy-exporters:
+    name: Deploy Exporters to App EC2
     runs-on: ubuntu-latest
-    needs: [deploy]
+    needs: [deploy, infra-apply]
 
     steps:
       - uses: actions/checkout@v4
 
-      - name: Upload monitoring configs to EC2
+      - name: Upload exporter configs to app EC2
         uses: appleboy/scp-action@v0.1.7
         with:
           host: ${{ secrets.EC2_HOST }}
           username: ec2-user
           key: ${{ secrets.EC2_SSH_KEY }}
-          source: "monit/"
+          source: "infra/docker-compose.exporters.yml"
           target: "/home/ec2-user/"
           overwrite: true
 
-      - name: Start monitoring stack
+      - name: Start exporters on app EC2
         uses: appleboy/ssh-action@v1.2.0
         with:
           host: ${{ secrets.EC2_HOST }}
           username: ec2-user
           key: ${{ secrets.EC2_SSH_KEY }}
           script: |
-            sudo mv -f /home/ec2-user/monit /opt/monit || true
+            set -e
+            sudo mkdir -p /opt/exporters
+            sudo cp /home/ec2-user/infra/docker-compose.exporters.yml /opt/exporters/docker-compose.yml
+            sudo tee /opt/exporters/.env > /dev/null <<EOF
+            LOKI_URL=http://${MONITOR_IP}:3100
+            EOF
+            sudo tee /opt/exporters/promtail-app.yml > /dev/null <<'PROMTAIL'
+            server:
+              http_listen_port: 9080
+              grpc_listen_port: 0
+            positions:
+              filename: /tmp/positions.yaml
+            clients:
+              - url: ${LOKI_URL}/loki/api/v1/push
+            scrape_configs:
+              - job_name: docker
+                docker_sd_configs:
+                  - host: unix:///var/run/docker.sock
+                    refresh_interval: 5s
+                relabel_configs:
+                  - source_labels: [__meta_docker_container_name]
+                    regex: /(.*)
+                    target_label: container
+                  - source_labels: [__meta_docker_compose_service]
+                    target_label: service
+              - job_name: system
+                static_configs:
+                  - targets: [localhost]
+                    labels:
+                      job: system
+                      __path__: /var/log/{messages,secure}
+            PROMTAIL
+            # Install Docker if missing
+            if ! command -v docker &>/dev/null; then
+              sudo dnf install -y docker && sudo systemctl enable --now docker
+            fi
+            if ! sudo docker compose version &>/dev/null 2>&1; then
+              curl -fsSL -o /tmp/docker-compose \
+                "https://github.com/docker/compose/releases/download/v2.27.0/docker-compose-linux-x86_64"
+              sudo mkdir -p /usr/local/lib/docker/cli-plugins
+              sudo install -m 0755 /tmp/docker-compose /usr/local/lib/docker/cli-plugins/docker-compose
+            fi
+            cd /opt/exporters
+            sudo docker compose pull
+            sudo docker compose up -d --remove-orphans
+        env:
+          MONITOR_IP: ${{ needs.infra-apply.outputs.monitor_ip }}
+
+  # ── 8. Deploy monitoring stack to monitoring EC2 ─────────────────
+  deploy-monitoring:
+    name: Deploy Monitoring Stack to Monitoring EC2
+    runs-on: ubuntu-latest
+    needs: [deploy-exporters, infra-apply]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Upload monitoring configs to monitoring EC2
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ needs.infra-apply.outputs.monitor_ip }}
+          username: ec2-user
+          key: ${{ secrets.EC2_SSH_KEY }}
+          source: "monit/"
+          target: "/home/ec2-user/"
+          overwrite: true
+
+      - name: Start monitoring stack on monitoring EC2
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ needs.infra-apply.outputs.monitor_ip }}
+          username: ec2-user
+          key: ${{ secrets.EC2_SSH_KEY }}
+          script: |
+            set -e
             sudo mkdir -p /opt/monit
             sudo cp -r /home/ec2-user/monit/. /opt/monit/
             sudo tee /opt/monit/.env > /dev/null <<EOF
             GRAFANA_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD}
             EOF
+            # Write prometheus.yml with actual app EC2 IP injected
+            sudo tee /opt/monit/prometheus/prometheus.yml > /dev/null <<'PROM'
+            global:
+              scrape_interval: 15s
+              evaluation_interval: 15s
+              external_labels:
+                app: skyops
+                env: production
+            alerting:
+              alertmanagers:
+                - static_configs:
+                    - targets: [alertmanager:9093]
+            rule_files:
+              - /etc/prometheus/alerts/*.yml
+            scrape_configs:
+              - job_name: skyops-backend
+                static_configs:
+                  - targets: [APP_EC2_IP:3001]
+                metrics_path: /metrics
+              - job_name: node-exporter
+                static_configs:
+                  - targets: [APP_EC2_IP:9100]
+              - job_name: cadvisor
+                static_configs:
+                  - targets: [APP_EC2_IP:8082]
+                metric_relabel_configs:
+                  - source_labels: [container_label_com_docker_compose_service]
+                    target_label: service
+                  - regex: container_label_.+
+                    action: labeldrop
+              - job_name: prometheus
+                static_configs:
+                  - targets: [localhost:9090]
+              - job_name: blackbox-http
+                metrics_path: /probe
+                params:
+                  module: [http_2xx]
+                static_configs:
+                  - targets:
+                      - https://APP_DOMAIN/health
+                      - https://APP_DOMAIN
+                relabel_configs:
+                  - source_labels: [__address__]
+                    target_label: __param_target
+                  - source_labels: [__param_target]
+                    target_label: instance
+                  - target_label: __address__
+                    replacement: blackbox:9115
+            PROM
+            # Replace placeholders with real values
+            sudo sed -i "s/APP_EC2_IP/${APP_EC2_IP}/g" /opt/monit/prometheus/prometheus.yml
+            sudo sed -i "s/APP_DOMAIN/${APP_DOMAIN}/g"  /opt/monit/prometheus/prometheus.yml
+            # Install Docker if missing
+            if ! command -v docker &>/dev/null; then
+              sudo dnf install -y docker && sudo systemctl enable --now docker
+            fi
+            if ! sudo docker compose version &>/dev/null 2>&1; then
+              curl -fsSL -o /tmp/docker-compose \
+                "https://github.com/docker/compose/releases/download/v2.27.0/docker-compose-linux-x86_64"
+              sudo mkdir -p /usr/local/lib/docker/cli-plugins
+              sudo install -m 0755 /tmp/docker-compose /usr/local/lib/docker/cli-plugins/docker-compose
+            fi
             cd /opt/monit
             sudo docker compose pull
             sudo docker compose up -d --remove-orphans
         env:
           GRAFANA_ADMIN_PASSWORD: ${{ secrets.GRAFANA_ADMIN_PASSWORD }}
+          APP_EC2_IP:             ${{ secrets.EC2_HOST }}
+          APP_DOMAIN:             ${{ secrets.APP_DOMAIN }}
 
   # ── 8. Production smoke test ──────────────────────────────────────
   smoke-prod:
@@ -467,7 +624,7 @@ jobs:
   summary:
     name: Release Summary
     runs-on: ubuntu-latest
-    needs: [build-push, infra-apply, deploy, deploy-monitoring, smoke-prod]
+    needs: [build-push, infra-apply, deploy, deploy-exporters, deploy-monitoring, smoke-prod]
     if: always()
 
     steps:

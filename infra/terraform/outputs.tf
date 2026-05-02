@@ -23,6 +23,16 @@ output "ssh_command" {
   value       = "ssh -i ~/.ssh/${var.key_name}.pem ec2-user@${aws_eip.skyops.public_ip}"
 }
 
+output "monitoring_public_ip" {
+  description = "Monitoring EC2 Elastic IP — add as MONITOR_HOST GitHub Secret after first deploy"
+  value       = aws_eip.monitoring.public_ip
+}
+
+output "grafana_url" {
+  description = "Grafana dashboard URL"
+  value       = "http://${aws_eip.monitoring.public_ip}:3000"
+}
+
 output "acm_validation_records" {
   description = "Add these DNS records at your registrar to validate the ACM certificate (only shown when hosted_zone_id is not set)"
   value = var.hosted_zone_id == "" ? {

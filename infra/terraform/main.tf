@@ -98,11 +98,27 @@ resource "aws_security_group" "skyops" {
   }
 
   ingress {
-    description     = "Grafana dashboard"
-    from_port       = 3000
-    to_port         = 3000
+    description     = "Prometheus scrape — backend /metrics"
+    from_port       = 3001
+    to_port         = 3001
     protocol        = "tcp"
-    cidr_blocks     = [var.allowed_ssh_cidr]
+    security_groups = [aws_security_group.monitoring.id]
+  }
+
+  ingress {
+    description     = "Prometheus scrape — node-exporter"
+    from_port       = 9100
+    to_port         = 9100
+    protocol        = "tcp"
+    security_groups = [aws_security_group.monitoring.id]
+  }
+
+  ingress {
+    description     = "Prometheus scrape — cAdvisor"
+    from_port       = 8082
+    to_port         = 8082
+    protocol        = "tcp"
+    security_groups = [aws_security_group.monitoring.id]
   }
 
   ingress {

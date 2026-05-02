@@ -1,0 +1,70 @@
+# ── Monitoring EC2 Security Group ────────────────────────────────
+resource "aws_security_group" "monitoring" {
+  name        = "skyops-monitoring-sg"
+  description = "SkyOps monitoring: Grafana from allowed CIDR; Loki from VPC"
+  vpc_id      = data.aws_vpc.default.id
+
+  ingress {
+    description = "Grafana"
+    from_port   = 3000
+    to_port     = 3000
+    protocol    = "tcp"
+    cidr_blocks = [var.allowed_ssh_cidr]
+  }
+
+  ingress {
+    description = "SSH"
+    from_port   = 22
+    to_port     = 22
+    protocol    = "tcp"
+    cidr_blocks = [var.allowed_ssh_cidr]
+  }
+
+  ingress {
+    description = "Loki push from VPC (Promtail on app EC2)"
+    from_port   = 3100
+    to_port     = 3100
+    protocol    = "tcp"
+    cidr_blocks = [data.aws_vpc.default.cidr_block]
+  }
+
+  egress {
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  tags = { Name = "skyops-monitoring-sg" }
+}
+
+# ── Monitoring EC2 Instance ───────────────────────────────────────
+resource "aws_instance" "monitoring" {
+  ami                    = data.aws_ami.al2023.id
+  instance_type          = "m5.xlarge"
+  key_name               = var.key_name
+  vpc_security_group_ids = [aws_security_group.monitoring.id]
+
+  root_block_device {
+    volume_type = "gp3"
+    volume_size = 30
+    encrypted   = true
+  }
+
+  tags = { Name = "skyops-monitoring" }
+
+  lifecycle {
+    ignore_changes = [ami, user_data]
+  }
+}
+
+# ── Monitoring Elastic IP ─────────────────────────────────────────
+resource "aws_eip" "monitoring" {
+  domain = "vpc"
+  tags   = { Name = "skyops-monitor-eip" }
+}
+
+resource "aws_eip_association" "monitoring" {
+  instance_id   = aws_instance.monitoring.id
+  allocation_id = aws_eip.monitoring.id
+}
