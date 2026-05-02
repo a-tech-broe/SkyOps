@@ -21,7 +21,7 @@ resource "aws_security_group" "monitoring" {
   }
 
   ingress {
-    description = "Loki push from VPC (Promtail on app EC2)"
+    description = "Loki push from VPC - Promtail on app EC2"
     from_port   = 3100
     to_port     = 3100
     protocol    = "tcp"

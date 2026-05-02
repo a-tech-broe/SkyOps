@@ -98,7 +98,7 @@ resource "aws_security_group" "skyops" {
   }
 
   ingress {
-    description     = "Prometheus scrape — backend /metrics"
+    description     = "Prometheus scrape - backend metrics"
     from_port       = 3001
     to_port         = 3001
     protocol        = "tcp"
@@ -106,7 +106,7 @@ resource "aws_security_group" "skyops" {
   }
 
   ingress {
-    description     = "Prometheus scrape — node-exporter"
+    description     = "Prometheus scrape - node-exporter"
     from_port       = 9100
     to_port         = 9100
     protocol        = "tcp"
@@ -114,7 +114,7 @@ resource "aws_security_group" "skyops" {
   }
 
   ingress {
-    description     = "Prometheus scrape — cAdvisor"
+    description     = "Prometheus scrape - cAdvisor"
     from_port       = 8082
     to_port         = 8082
     protocol        = "tcp"
