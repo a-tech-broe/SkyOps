@@ -1,4 +1,4 @@
-name: CD — Build · Scan · Sign · Push
+name: CD — Build · Infra · Deploy
 
 on:
   push:
@@ -13,18 +13,16 @@ on:
 
 permissions:
   contents: read
-  security-events: write   # SARIF upload
-  id-token: write          # Cosign keyless signing via OIDC
+  security-events: write
+  id-token: write
   packages: write
 
 concurrency:
   group: cd-${{ github.ref }}
-  cancel-in-progress: false  # never cancel a production deploy
+  cancel-in-progress: false
 
 jobs:
-  # ──────────────────────────────────────────────
-  # 1. SECRET SCAN — mandatory gate
-  # ──────────────────────────────────────────────
+  # ── 1. Secret scan ────────────────────────────────────────────────
   secret-scan:
     name: Secret Scan (Gitleaks)
     runs-on: ubuntu-latest
@@ -42,9 +40,7 @@ jobs:
       - name: Run Gitleaks
         run: gitleaks detect --source . --verbose --redact --log-level warn
 
-  # ──────────────────────────────────────────────
-  # 2. SAST — production gate (fail on any finding)
-  # ──────────────────────────────────────────────
+  # ── 2. SAST ───────────────────────────────────────────────────────
   sast:
     name: SAST (Semgrep)
     runs-on: ubuntu-latest
@@ -63,17 +59,14 @@ jobs:
         env:
           SEMGREP_APP_TOKEN: ${{ secrets.SEMGREP_APP_TOKEN }}
 
-      - name: Upload SARIF
-        uses: github/codeql-action/upload-sarif@v3
+      - uses: github/codeql-action/upload-sarif@v3
         if: always()
         with:
           sarif_file: semgrep.sarif
           category: semgrep
 
-  # ──────────────────────────────────────────────
-  # 3. DEPENDENCY AUDIT — fail on HIGH in prod
-  # ──────────────────────────────────────────────
-  dependency-audit:
+  # ── 3. Dependency audit — stricter in prod ────────────────────────
+  audit:
     name: Dependency Audit
     runs-on: ubuntu-latest
     steps:
@@ -81,21 +74,19 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '22'
 
       - name: Audit backend
-        run: cd app/backend && npm install --prefer-offline && npm audit --audit-level=high
+        run: cd app/backend && npm ci && npm audit --audit-level=high
 
       - name: Audit web
-        run: cd app/web && npm install --prefer-offline && npm audit --audit-level=high
+        run: cd app/web && npm ci && npm audit --audit-level=high
 
-  # ──────────────────────────────────────────────
-  # 4. BUILD · SCAN · PUSH — matrix per service
-  # ──────────────────────────────────────────────
-  build-scan-push:
-    name: Build · Scan · Push (${{ matrix.service }})
+  # ── 4. Build · push · scan · sign per service ────────────────────
+  build-push:
+    name: Build · Push · Sign (${{ matrix.service }})
     runs-on: ubuntu-latest
-    needs: [secret-scan, sast, dependency-audit]
+    needs: [secret-scan, sast, audit]
     strategy:
       fail-fast: false
       matrix:
@@ -107,13 +98,8 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
-
-      # ── Docker setup ──
-      - name: Set up QEMU (multi-arch)
-        uses: docker/setup-qemu-action@v3
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
 
       - name: Login to Docker Hub
         uses: docker/login-action@v3
@@ -121,22 +107,17 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-      # ── Image metadata / tags ──
       - name: Docker metadata
         id: meta
         uses: docker/metadata-action@v5
         with:
           images: ${{ secrets.DOCKERHUB_USERNAME }}/skyops-${{ matrix.service }}
           tags: |
-            # semver on tag push (v1.2.3 → 1.2.3, 1.2, 1)
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
             type=semver,pattern={{major}}
-            # branch name on non-tag pushes
             type=ref,event=branch
-            # immutable SHA tag always
             type=sha,prefix=sha-,format=short
-            # latest only on main branch
             type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
           labels: |
             org.opencontainers.image.title=SkyOps ${{ matrix.service }}
@@ -144,7 +125,6 @@ jobs:
             org.opencontainers.image.vendor=SkyOps
             org.opencontainers.image.licenses=MIT
 
-      # ── Build multi-platform & push ──
       - name: Build and push
         id: build
         uses: docker/build-push-action@v6
@@ -155,19 +135,15 @@ jobs:
           push: ${{ github.event_name != 'workflow_dispatch' || inputs.push }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          provenance: true     # SLSA provenance attestation
-          sbom: true           # inline SBOM attestation
+          provenance: true
+          sbom: true
           cache-from: type=gha,scope=${{ matrix.service }}-prod
           cache-to: type=gha,scope=${{ matrix.service }}-prod,mode=max
-          build-args: |
-            BUILD_DATE=${{ github.event.repository.updated_at }}
-            VCS_REF=${{ github.sha }}
 
-      # ── Trivy image scan — warn on CRITICAL or HIGH ──
-      - name: Trivy image scan (prod gate)
-        id: trivy-prod
+      - name: Trivy image scan
+        id: trivy-image
         uses: aquasecurity/trivy-action@master
-        continue-on-error: true      # let SARIF upload always run
+        continue-on-error: true
         with:
           image-ref: ${{ secrets.DOCKERHUB_USERNAME }}/skyops-${{ matrix.service }}@${{ steps.build.outputs.digest }}
           severity: CRITICAL,HIGH
@@ -176,27 +152,23 @@ jobs:
           format: sarif
           output: trivy-image-${{ matrix.service }}.sarif
 
-      - name: Ensure prod SARIF has valid run
+      - name: Ensure image SARIF valid
         if: always()
         run: |
           FILE="trivy-image-${{ matrix.service }}.sarif"
-          if [ ! -f "$FILE" ] || ! jq -e '.runs | length > 0' "$FILE" > /dev/null 2>&1; then
+          jq -e '.runs | length > 0' "$FILE" > /dev/null 2>&1 || \
             echo '{"version":"2.1.0","$schema":"https://json.schemastore.org/sarif-2.1.0.json","runs":[{"tool":{"driver":{"name":"Trivy","version":"0.0.0","informationUri":"https://github.com/aquasecurity/trivy","rules":[]}},"results":[]}]}' > "$FILE"
-          fi
 
-      - name: Upload Trivy SARIF
-        uses: github/codeql-action/upload-sarif@v3
+      - uses: github/codeql-action/upload-sarif@v3
         if: always()
         with:
           sarif_file: trivy-image-${{ matrix.service }}.sarif
           category: trivy-image-${{ matrix.service }}
 
-      - name: Warn on prod scan findings
-        if: steps.trivy-prod.outcome == 'failure'
-        run: |
-          echo "::warning::Trivy found CRITICAL/HIGH vulnerabilities in skyops-${{ matrix.service }}. Review Security → Code scanning. Deployment continues."
+      - name: Warn on scan findings
+        if: steps.trivy-image.outcome == 'failure'
+        run: echo "::warning::Trivy found vulnerabilities in skyops-${{ matrix.service }}. Review Security → Code scanning."
 
-      # ── Cosign keyless signing (OIDC — no key secrets needed) ──
       - name: Install Cosign
         uses: sigstore/cosign-installer@v3
 
@@ -208,8 +180,7 @@ jobs:
         env:
           COSIGN_EXPERIMENTAL: '1'
 
-      # ── SBOM export as release artifact ──
-      - name: Generate SBOM (Syft)
+      - name: Generate SBOM
         uses: anchore/sbom-action@v0
         with:
           image: ${{ secrets.DOCKERHUB_USERNAME }}/skyops-${{ matrix.service }}@${{ steps.build.outputs.digest }}
@@ -218,25 +189,177 @@ jobs:
           upload-artifact: true
           upload-release-assets: true
 
-  # ──────────────────────────────────────────────
-  # 5. SUMMARY — post digest + verify instructions
-  # ──────────────────────────────────────────────
-  summary:
-    name: Deployment Summary
+  # ── 5. Infra apply — provision / update EC2 ──────────────────────
+  infra-apply:
+    name: Infra Apply (Terraform)
     runs-on: ubuntu-latest
-    needs: [build-scan-push]
-    if: always()
+    needs: [build-push]
+    defaults:
+      run:
+        working-directory: infra/terraform
+    env:
+      AWS_ACCESS_KEY_ID:     ${{ secrets.AWS_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+      AWS_DEFAULT_REGION:    ${{ secrets.AWS_REGION || 'us-east-1' }}
+      TF_VAR_dockerhub_username: ${{ secrets.DOCKERHUB_USERNAME }}
+      TF_VAR_key_name: keyit
+
     steps:
-      - name: Write job summary
+      - uses: actions/checkout@v4
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: '1.8.5'
+
+      - name: Terraform Init
         run: |
-          echo "## SkyOps Release — ${{ github.sha }}" >> $GITHUB_STEP_SUMMARY
+          terraform init \
+            -backend-config="bucket=${{ secrets.TF_BACKEND_BUCKET }}" \
+            -backend-config="key=ec2/terraform.tfstate" \
+            -backend-config="region=${{ secrets.AWS_REGION || 'us-east-1' }}" \
+            -backend-config="dynamodb_table=${{ secrets.TF_BACKEND_DYNAMO_TABLE }}" \
+            -backend-config="encrypt=true"
+
+      - name: Clear blackhole default route
+        run: |
+          REGION="${{ secrets.AWS_REGION || 'us-east-1' }}"
+          VPC_ID=$(aws ec2 describe-vpcs \
+            --filters "Name=isDefault,Values=true" \
+            --query "Vpcs[0].VpcId" --output text --region "$REGION")
+          RTB_ID=$(aws ec2 describe-route-tables \
+            --filters "Name=vpc-id,Values=$VPC_ID" "Name=association.main,Values=true" \
+            --query "RouteTables[0].RouteTableId" --output text --region "$REGION")
+          aws ec2 delete-route --route-table-id "$RTB_ID" \
+            --destination-cidr-block 0.0.0.0/0 --region "$REGION" \
+            && echo "Stale route removed" || echo "No conflicting route"
+
+      - name: Import existing AWS resources into state
+        run: |
+          REGION="${{ secrets.AWS_REGION || 'us-east-1' }}"
+
+          terraform import aws_iam_role.skyops_ec2 skyops-ec2-role 2>/dev/null || true
+          terraform import aws_iam_instance_profile.skyops_ec2 skyops-ec2-profile 2>/dev/null || true
+          terraform import aws_iam_role_policy.ssm_read skyops-ec2-role:skyops-ssm-read 2>/dev/null || true
+
+          SG_ID=$(aws ec2 describe-security-groups \
+            --filters "Name=group-name,Values=skyops-sg" \
+            --query "SecurityGroups[0].GroupId" --output text --region "$REGION" 2>/dev/null || true)
+          [ -n "$SG_ID" ] && [ "$SG_ID" != "None" ] && \
+            terraform import aws_security_group.skyops "$SG_ID" 2>/dev/null || true
+
+          EIP_ID=$(aws ec2 describe-addresses \
+            --filters "Name=tag:Name,Values=skyops-eip" \
+            --query "Addresses[0].AllocationId" --output text --region "$REGION" 2>/dev/null || true)
+          [ -n "$EIP_ID" ] && [ "$EIP_ID" != "None" ] && \
+            terraform import aws_eip.skyops "$EIP_ID" 2>/dev/null || true
+
+          IGW_ID=$(aws ec2 describe-internet-gateways \
+            --filters "Name=tag:Name,Values=skyops-igw" \
+            --query "InternetGateways[0].InternetGatewayId" --output text --region "$REGION" 2>/dev/null || true)
+          [ -n "$IGW_ID" ] && [ "$IGW_ID" != "None" ] && \
+            terraform import aws_internet_gateway.skyops "$IGW_ID" 2>/dev/null || true
+
+      - name: Terraform Plan
+        run: terraform plan -out=tfplan -input=false
+
+      - name: Terraform Apply
+        run: terraform apply -auto-approve -input=false tfplan
+
+      - name: Terraform Outputs
+        run: terraform output
+
+  # ── 6. Deploy — write .env + restart containers ──────────────────
+  deploy:
+    name: Deploy to EC2
+    runs-on: ubuntu-latest
+    needs: [infra-apply]
+
+    steps:
+      - name: Write .env and restart containers
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ec2-user
+          key: ${{ secrets.EC2_SSH_KEY }}
+          envs: DOCKERHUB_USERNAME,DB_USER,DB_PASSWORD,FAA_CLIENT_ID,FAA_CLIENT_SECRET,VITE_API_URL
+          script: |
+            mkdir -p /opt/skyops
+            cat > /opt/skyops/.env <<EOF
+            DB_USER=${DB_USER}
+            DB_PASSWORD=${DB_PASSWORD}
+            FAA_CLIENT_ID=${FAA_CLIENT_ID}
+            FAA_CLIENT_SECRET=${FAA_CLIENT_SECRET}
+            VITE_API_URL=${VITE_API_URL}
+            DOCKERHUB_USERNAME=${DOCKERHUB_USERNAME}
+            IMAGE_TAG=latest
+            EOF
+            cd /opt/skyops
+            docker compose -f docker-compose.prod.yml pull
+            docker compose -f docker-compose.prod.yml up -d --remove-orphans
+            docker image prune -f
+        env:
+          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+          DB_USER:            ${{ secrets.DB_USER }}
+          DB_PASSWORD:        ${{ secrets.DB_PASSWORD }}
+          FAA_CLIENT_ID:      ${{ secrets.FAA_CLIENT_ID }}
+          FAA_CLIENT_SECRET:  ${{ secrets.FAA_CLIENT_SECRET }}
+          VITE_API_URL:       http://${{ secrets.EC2_HOST }}:3001
+
+  # ── 7. Production smoke test ──────────────────────────────────────
+  smoke-prod:
+    name: Production Smoke Test
+    runs-on: ubuntu-latest
+    needs: [deploy]
+
+    steps:
+      - name: Wait for containers to stabilize
+        run: sleep 30
+
+      - name: API health check
+        run: |
+          curl -sf "http://${{ secrets.EC2_HOST }}:3001/health" \
+            | jq -e '.status == "ok"' \
+            || (echo "::error::API health check failed" && exit 1)
+
+      - name: Web health check
+        run: |
+          curl -sf "http://${{ secrets.EC2_HOST }}/" \
+            | grep -qi "<!DOCTYPE html>" \
+            || (echo "::error::Web health check failed" && exit 1)
+
+      - name: Weather API smoke test
+        run: |
+          curl -sf "http://${{ secrets.EC2_HOST }}:3001/api/weather/metar?ids=KORD" \
+            && echo "Weather API OK" \
+            || echo "::warning::Weather API unavailable (external dependency)"
+
+      - name: Airport API smoke test
+        run: |
+          curl -sf "http://${{ secrets.EC2_HOST }}:3001/api/airports?ids=KORD" \
+            && echo "Airports API OK" \
+            || echo "::warning::Airports API unavailable (external dependency)"
+
+  # ── 8. Summary ────────────────────────────────────────────────────
+  summary:
+    name: Release Summary
+    runs-on: ubuntu-latest
+    needs: [build-push, infra-apply, deploy, smoke-prod]
+    if: always()
+
+    steps:
+      - name: Write summary
+        run: |
+          SHA=$(echo "${{ github.sha }}" | cut -c1-7)
+          echo "## SkyOps Release — \`$SHA\`" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "| Service | Image | Status |" >> $GITHUB_STEP_SUMMARY
-          echo "|---|---|---|" >> $GITHUB_STEP_SUMMARY
-          echo "| backend | \`${{ secrets.DOCKERHUB_USERNAME }}/skyops-backend:sha-$(echo ${{ github.sha }} | cut -c1-7)\` | ${{ needs.build-scan-push.result }} |" >> $GITHUB_STEP_SUMMARY
-          echo "| web | \`${{ secrets.DOCKERHUB_USERNAME }}/skyops-web:sha-$(echo ${{ github.sha }} | cut -c1-7)\` | ${{ needs.build-scan-push.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Stage | Result |" >> $GITHUB_STEP_SUMMARY
+          echo "|---|---|" >> $GITHUB_STEP_SUMMARY
+          echo "| Build & Push  | ${{ needs.build-push.result }}  |" >> $GITHUB_STEP_SUMMARY
+          echo "| Infra Apply   | ${{ needs.infra-apply.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Deploy        | ${{ needs.deploy.result }}      |" >> $GITHUB_STEP_SUMMARY
+          echo "| Smoke Test    | ${{ needs.smoke-prod.result }}  |" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### Verify image signatures" >> $GITHUB_STEP_SUMMARY
+          echo "### Verify signatures" >> $GITHUB_STEP_SUMMARY
           echo '```bash' >> $GITHUB_STEP_SUMMARY
           echo "cosign verify \\" >> $GITHUB_STEP_SUMMARY
           echo "  --certificate-identity-regexp='https://github.com/${{ github.repository }}' \\" >> $GITHUB_STEP_SUMMARY

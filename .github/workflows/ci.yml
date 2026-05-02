@@ -1,4 +1,4 @@
-name: CI — Lint · Scan · Build
+name: CI — Gate
 
 on:
   pull_request:
@@ -8,7 +8,7 @@ on:
 
 permissions:
   contents: read
-  security-events: write   # upload SARIF to GitHub Security tab
+  security-events: write
   pull-requests: read
 
 concurrency:
@@ -16,16 +16,14 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  # ──────────────────────────────────────────────
-  # 1. SECRET SCANNING — block commits with creds
-  # ──────────────────────────────────────────────
+  # ── 1. Secret scan ────────────────────────────────────────────────
   secret-scan:
     name: Secret Scan (Gitleaks)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 0  # full history for delta scanning
+          fetch-depth: 0
 
       - name: Install Gitleaks
         run: |
@@ -36,9 +34,7 @@ jobs:
       - name: Run Gitleaks
         run: gitleaks detect --source . --verbose --redact --log-level warn
 
-  # ──────────────────────────────────────────────
-  # 2. LINT — TypeScript + Dockerfile hygiene
-  # ──────────────────────────────────────────────
+  # ── 2. Lint ───────────────────────────────────────────────────────
   lint:
     name: Lint & Type Check
     runs-on: ubuntu-latest
@@ -55,64 +51,52 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: |
+            app/backend/package-lock.json
+            app/web/package-lock.json
 
       - name: Type-check backend
-        run: |
-          cd app/backend
-          npm install --prefer-offline
-          npx tsc --noEmit
+        run: cd app/backend && npm ci && npx tsc --noEmit
 
       - name: Type-check web
-        run: |
-          cd app/web
-          npm install --prefer-offline
-          npx tsc --noEmit
+        run: cd app/web && npm ci && npx tsc --noEmit
 
-  # ──────────────────────────────────────────────
-  # 3. DEPENDENCY AUDIT — known CVEs in packages
-  # ──────────────────────────────────────────────
-  dependency-audit:
-    name: Dependency Audit (npm audit)
+  # ── 3. Dependency audit ───────────────────────────────────────────
+  audit:
+    name: Dependency Audit
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
       - uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '22'
 
       - name: Audit backend
         run: |
-          cd app/backend
-          npm install --prefer-offline
+          cd app/backend && npm ci
           npm audit --audit-level=high --json | tee audit-backend.json || true
           npm audit --audit-level=critical
 
       - name: Audit web
         run: |
-          cd app/web
-          npm install --prefer-offline
+          cd app/web && npm ci
           npm audit --audit-level=high --json | tee audit-web.json || true
           npm audit --audit-level=critical
 
       - name: Audit mobile
-        run: |
-          cd app/mobile
-          npm install --prefer-offline
-          npm audit --audit-level=critical
+        run: cd app/mobile && npm ci && npm audit --audit-level=critical
 
-      - name: Upload audit results
-        uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: npm-audit-reports
           path: "**/*.json"
-          retention-days: 30
+          retention-days: 14
 
-  # ──────────────────────────────────────────────
-  # 4. SAST — static analysis
-  # ──────────────────────────────────────────────
+  # ── 4. SAST ───────────────────────────────────────────────────────
   sast:
     name: SAST (Semgrep)
     runs-on: ubuntu-latest
@@ -131,20 +115,17 @@ jobs:
         env:
           SEMGREP_APP_TOKEN: ${{ secrets.SEMGREP_APP_TOKEN }}
 
-      - name: Upload Semgrep SARIF
-        uses: github/codeql-action/upload-sarif@v3
+      - uses: github/codeql-action/upload-sarif@v3
         if: always()
         with:
           sarif_file: semgrep.sarif
           category: semgrep
 
-  # ──────────────────────────────────────────────
-  # 5. BUILD + IMAGE SCAN — CVE gate
-  # ──────────────────────────────────────────────
+  # ── 5. Build + CVE scan per service ──────────────────────────────
   build-and-scan:
-    name: Build & Trivy Scan (${{ matrix.service }})
+    name: Build & Scan (${{ matrix.service }})
     runs-on: ubuntu-latest
-    needs: [lint, dependency-audit]
+    needs: [lint, audit]
     strategy:
       fail-fast: false
       matrix:
@@ -152,11 +133,9 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
 
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Build image (no push)
+      - name: Build image
         uses: docker/build-push-action@v6
         with:
           context: ./app/${{ matrix.service }}
@@ -164,13 +143,10 @@ jobs:
           push: false
           load: true
           tags: skyops-${{ matrix.service }}:ci
-          cache-from: type=gha,scope=${{ matrix.service }}
-          cache-to: type=gha,scope=${{ matrix.service }},mode=max
+          cache-from: type=gha,scope=${{ matrix.service }}-ci
+          cache-to: type=gha,scope=${{ matrix.service }}-ci,mode=max
+          build-args: VITE_API_URL=http://localhost:3001
 
-      - name: Verify image loaded into Docker
-        run: docker image inspect skyops-${{ matrix.service }}:ci --format '{{.Id}}'
-
-      # Filesystem scan (source + deps) — warn only, never blocks
       - name: Trivy FS scan
         uses: aquasecurity/trivy-action@master
         continue-on-error: true
@@ -182,76 +158,191 @@ jobs:
           format: sarif
           output: trivy-fs-${{ matrix.service }}.sarif
 
-      - name: Ensure FS SARIF has valid run
+      - name: Ensure FS SARIF valid
         if: always()
         run: |
           FILE="trivy-fs-${{ matrix.service }}.sarif"
-          if [ ! -f "$FILE" ] || ! jq -e '.runs | length > 0' "$FILE" > /dev/null 2>&1; then
+          jq -e '.runs | length > 0' "$FILE" > /dev/null 2>&1 || \
             echo '{"version":"2.1.0","$schema":"https://json.schemastore.org/sarif-2.1.0.json","runs":[{"tool":{"driver":{"name":"Trivy","version":"0.0.0","informationUri":"https://github.com/aquasecurity/trivy","rules":[]}},"results":[]}]}' > "$FILE"
-          fi
 
-      - name: Upload FS SARIF
-        uses: github/codeql-action/upload-sarif@v3
+      - uses: github/codeql-action/upload-sarif@v3
         if: always()
         with:
           sarif_file: trivy-fs-${{ matrix.service }}.sarif
           category: trivy-fs-${{ matrix.service }}
 
-      # Show exact CVE IDs in the job log for visibility
-      - name: Trivy image scan (table — for log visibility)
-        uses: aquasecurity/trivy-action@master
-        with:
-          image-ref: skyops-${{ matrix.service }}:ci
-          severity: CRITICAL
-          exit-code: '0'
-          ignore-unfixed: true
-          format: table
-
-      # Image scan — findings go to SARIF + warning notice, build is not blocked
       - name: Trivy image scan
         id: trivy-image
         uses: aquasecurity/trivy-action@master
         continue-on-error: true
         with:
           image-ref: skyops-${{ matrix.service }}:ci
-          severity: CRITICAL
+          severity: CRITICAL,HIGH
           exit-code: '0'
           ignore-unfixed: true
           format: sarif
           output: trivy-image-${{ matrix.service }}.sarif
 
-      - name: Ensure image SARIF has valid run
+      - name: Ensure image SARIF valid
         if: always()
         run: |
           FILE="trivy-image-${{ matrix.service }}.sarif"
-          if [ ! -f "$FILE" ] || ! jq -e '.runs | length > 0' "$FILE" > /dev/null 2>&1; then
+          jq -e '.runs | length > 0' "$FILE" > /dev/null 2>&1 || \
             echo '{"version":"2.1.0","$schema":"https://json.schemastore.org/sarif-2.1.0.json","runs":[{"tool":{"driver":{"name":"Trivy","version":"0.0.0","informationUri":"https://github.com/aquasecurity/trivy","rules":[]}},"results":[]}]}' > "$FILE"
-          fi
 
-      - name: Upload image SARIF
-        uses: github/codeql-action/upload-sarif@v3
+      - uses: github/codeql-action/upload-sarif@v3
         if: always()
         with:
           sarif_file: trivy-image-${{ matrix.service }}.sarif
           category: trivy-image-${{ matrix.service }}
 
-      - name: Warn on image scan findings
+      - name: Warn on scan findings
         if: steps.trivy-image.outcome == 'failure'
-        run: |
-          echo "::warning::Trivy found CRITICAL vulnerabilities in skyops-${{ matrix.service }}. Review findings in Security → Code scanning. Build continues."
+        run: echo "::warning::Trivy found vulnerabilities in skyops-${{ matrix.service }}. Review Security → Code scanning."
 
-      # Retired category tombstone — trivy-prod-* was renamed to trivy-image-*.
-      # Upload empty SARIF so GitHub Code Scanning finds the category on this PR
-      # branch and stops warning "configuration not found on refs/heads/main".
       - name: Tombstone retired trivy-prod category
         if: always()
         run: |
           echo '{"version":"2.1.0","$schema":"https://json.schemastore.org/sarif-2.1.0.json","runs":[{"tool":{"driver":{"name":"Trivy","version":"0.0.0","informationUri":"https://github.com/aquasecurity/trivy","rules":[]}},"results":[]}]}' \
             > trivy-prod-${{ matrix.service }}.sarif
 
-      - name: Upload retired category SARIF
-        uses: github/codeql-action/upload-sarif@v3
+      - uses: github/codeql-action/upload-sarif@v3
         if: always()
         with:
           sarif_file: trivy-prod-${{ matrix.service }}.sarif
           category: trivy-prod-${{ matrix.service }}
+
+  # ── 6. Smoke test — local integration test ───────────────────────
+  smoke-test:
+    name: Smoke Test
+    runs-on: ubuntu-latest
+    needs: [build-and-scan]
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Rebuild backend from cache
+        uses: docker/build-push-action@v6
+        with:
+          context: ./app/backend
+          file: ./app/backend/Dockerfile
+          push: false
+          load: true
+          tags: skyops-backend:ci
+          cache-from: type=gha,scope=backend-ci
+
+      - name: Rebuild web from cache
+        uses: docker/build-push-action@v6
+        with:
+          context: ./app/web
+          file: ./app/web/Dockerfile
+          push: false
+          load: true
+          tags: skyops-web:ci
+          cache-from: type=gha,scope=web-ci
+          build-args: VITE_API_URL=http://localhost:3001
+
+      - name: Start services
+        run: |
+          docker network create skyops-test
+
+          docker run -d --name skyops-db --network skyops-test \
+            -e POSTGRES_DB=skyops \
+            -e POSTGRES_USER=skyops \
+            -e POSTGRES_PASSWORD=testpass \
+            postgres:16-alpine
+
+          docker run -d --name skyops-backend --network skyops-test \
+            -e NODE_ENV=production \
+            -e PORT=3001 \
+            -e DB_URL=postgresql://skyops:testpass@skyops-db:5432/skyops \
+            -e FAA_CLIENT_ID=test \
+            -e FAA_CLIENT_SECRET=test \
+            -p 3001:3001 \
+            skyops-backend:ci
+
+          docker run -d --name skyops-web \
+            -p 8080:8080 \
+            skyops-web:ci
+
+      - name: Wait for backend
+        run: |
+          for i in $(seq 1 30); do
+            curl -sf http://localhost:3001/health > /dev/null 2>&1 && echo "Backend ready" && break
+            [ "$i" -eq 30 ] && echo "::error::Backend did not start" && exit 1
+            sleep 3
+          done
+
+      - name: Wait for web
+        run: |
+          for i in $(seq 1 20); do
+            curl -sf http://localhost:8080/ > /dev/null 2>&1 && echo "Web ready" && break
+            [ "$i" -eq 20 ] && echo "::error::Web did not start" && exit 1
+            sleep 3
+          done
+
+      - name: Run smoke tests
+        run: |
+          echo "--- /health ---"
+          curl -sf http://localhost:3001/health | jq -e '.status == "ok"'
+
+          echo "--- web HTML ---"
+          curl -sf http://localhost:8080/ | grep -qi "<!DOCTYPE html>" || \
+            (echo "Web did not return HTML" && exit 1)
+
+          echo "--- /api/weather/metar (warn-only — external) ---"
+          curl -sf "http://localhost:3001/api/weather/metar?ids=KORD" \
+            && echo "Weather OK" \
+            || echo "::warning::Weather API unavailable (external dependency)"
+
+          echo "--- /api/airports (warn-only — external) ---"
+          curl -sf "http://localhost:3001/api/airports?ids=KORD" \
+            && echo "Airports OK" \
+            || echo "::warning::Airports API unavailable (external dependency)"
+
+          echo "All smoke tests passed"
+
+      - name: Container logs on failure
+        if: failure()
+        run: |
+          echo "=== backend ===" && docker logs skyops-backend 2>&1 || true
+          echo "=== web ==="     && docker logs skyops-web     2>&1 || true
+          echo "=== db ==="      && docker logs skyops-db      2>&1 || true
+
+  # ── 7. Infra plan — preview only, PR branch ──────────────────────
+  infra-plan:
+    name: Infra Plan
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    needs: [secret-scan]
+    defaults:
+      run:
+        working-directory: infra/terraform
+    env:
+      AWS_ACCESS_KEY_ID:     ${{ secrets.AWS_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+      AWS_DEFAULT_REGION:    ${{ secrets.AWS_REGION || 'us-east-1' }}
+      TF_VAR_dockerhub_username: ${{ secrets.DOCKERHUB_USERNAME }}
+      TF_VAR_key_name: keyit
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: '1.8.5'
+
+      - name: Terraform Init
+        run: |
+          terraform init \
+            -backend-config="bucket=${{ secrets.TF_BACKEND_BUCKET }}" \
+            -backend-config="key=ec2/terraform.tfstate" \
+            -backend-config="region=${{ secrets.AWS_REGION || 'us-east-1' }}" \
+            -backend-config="dynamodb_table=${{ secrets.TF_BACKEND_DYNAMO_TABLE }}" \
+            -backend-config="encrypt=true"
+
+      - name: Terraform Validate
+        run: terraform validate
+
+      - name: Terraform Plan
+        run: terraform plan -input=false
