@@ -1,3 +1,13 @@
+# ── Default VPC + Internet Gateway ───────────────────────────────
+data "aws_vpc" "default" {
+  default = true
+}
+
+resource "aws_internet_gateway" "skyops" {
+  vpc_id = data.aws_vpc.default.id
+  tags   = { Name = "skyops-igw" }
+}
+
 # ── AMI — latest Amazon Linux 2023 x86_64 ────────────────────────
 data "aws_ami" "al2023" {
   most_recent = true
@@ -54,6 +64,7 @@ resource "aws_iam_instance_profile" "skyops_ec2" {
 resource "aws_security_group" "skyops" {
   name        = "skyops-sg"
   description = "SkyOps: HTTP + HTTPS inbound, SSH restricted"
+  vpc_id      = data.aws_vpc.default.id
 
   ingress {
     description = "HTTP"
@@ -111,6 +122,8 @@ resource "aws_instance" "skyops" {
   })
 
   tags = { Name = "skyops-app" }
+
+  depends_on = [aws_internet_gateway.skyops]
 
   lifecycle {
     ignore_changes = [ami]
