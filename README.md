@@ -13,7 +13,7 @@ Aviation tools for GA pilots — Weather · NOTAMs · Airports · Currency
 
 - **Weather** — METAR · TAF · PIREPs · SIGMETs · AIRMETs with VFR/MVFR/IFR/LIFR flight rules color coding
 - **NOTAMs** — Full text lookup via FAA API
-- **Airports** — Info, runways, coordinates, elevation (global ICAO coverage)
+- **Airports** — Info, runways, coordinates, elevation (global ICAO coverage) + FAA approach plates and IFR alerts
 - **Light / Dark mode** — Toggle in the nav bar; preference persists across sessions
 - **Currency** — DB schema ready for pilot logbook & currency tracking
 
@@ -25,6 +25,56 @@ Aviation tools for GA pilots — Weather · NOTAMs · Airports · Currency
 | Blue | MVFR | 1000–3000 ft | 3–5 SM |
 | Red | IFR | 500–999 ft | 1–3 SM |
 | Magenta | LIFR | < 500 ft | < 1 SM |
+
+---
+
+## Airport Details
+
+The Airport page is designed for preflight planning — useful for both student pilots and airline crews.
+
+### Tabs
+
+| Tab | Contents |
+|---|---|
+| **Overview** | Name, location, elevation, coordinates, longest runway, current METAR, wind direction indicator |
+| **Runways** | All runways ranked by wind favor with headwind and crosswind components per runway |
+| **Charts** | FAA d-TPP approach plates grouped by type, linked directly to current-cycle PDFs |
+
+### Runway Wind Analysis
+
+Runways are sorted by how well they align with the reported surface wind. For each runway the page shows:
+
+- **HW** — headwind component in knots
+- **XW** — crosswind component in knots
+- **Best** badge on the most favorable runway
+
+Wind is parsed from the live METAR attached to the airport record.
+
+### IFR / LIFR Alert
+
+When the METAR indicates IFR or LIFR conditions **and** the airport has FAA approach plates, a color-coded banner appears in the Overview tab:
+
+| Condition | Banner color |
+|---|---|
+| IFR | Red |
+| LIFR | Magenta |
+
+The banner includes a **View Approaches →** button that jumps directly to the Charts tab with the Instrument Approaches (IAP) section highlighted.
+
+### FAA d-TPP Charts
+
+Chart data is sourced from the FAA digital Terminal Procedures Publication (d-TPP). Coverage is limited to US airports with ICAO identifiers starting with **K**, **P**, or **A**. International airports display a notice to consult the national AIP or Jeppesen.
+
+| Chart code | Type |
+|---|---|
+| APD | Airport Diagram |
+| IAP | Instrument Approach Procedures |
+| DP | Departure Procedures (SIDs) |
+| STAR | Standard Terminal Arrivals |
+| MIN | Takeoff Minimums & Obstacle Departure Procedures |
+| HOT | Airport Hot Spots |
+
+Charts are updated automatically each [AIRAC cycle](https://en.wikipedia.org/wiki/AIRAC) (28-day interval). The current cycle identifier is shown at the top of the Charts tab. The backend caches the d-TPP XML index in memory and clears it on cycle change.
 
 ---
 
@@ -307,3 +357,4 @@ Alerts are defined in `monit/prometheus/alerts/` and routed through Alertmanager
 |---|---|---|
 | [AviationWeather.gov](https://aviationweather.gov/data/api/) | None | METAR, TAF, PIREPs, SIGMETs, AIRMETs, airports (global) |
 | [FAA NOTAM API](https://api.faa.gov/) | Client credentials | NOTAMs (US airspace only) |
+| [FAA d-TPP](https://aeronav.faa.gov/d-tpp/) | None | Approach plates, airport diagrams, SIDs, STARs (US only, updated each AIRAC cycle) |
