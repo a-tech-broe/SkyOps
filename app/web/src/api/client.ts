@@ -1,4 +1,4 @@
-import { getDeviceId } from '../lib/deviceId';
+import { getDeviceId } from '../utils/deviceId';
 
 const BASE = '/api';
 
