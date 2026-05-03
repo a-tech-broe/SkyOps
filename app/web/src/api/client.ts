@@ -1,3 +1,5 @@
+import { getDeviceId } from '../utils/deviceId';
+
 const BASE = '/api';
 
 async function get<T>(path: string): Promise<T> {
@@ -20,5 +22,16 @@ export const api = {
   airports: {
     info: (icao: string) => get(`/airports/${icao}`),
     charts: (icao: string) => get(`/airports/${icao}/charts`),
+  },
+  history: {
+    get: (type: string) =>
+      get<string[]>(`/history?deviceId=${getDeviceId()}&type=${type}`),
+    record: (icao: string, type: string) => {
+      fetch(`${BASE}/history`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ deviceId: getDeviceId(), icao, type }),
+      }).catch(() => {});
+    },
   },
 };

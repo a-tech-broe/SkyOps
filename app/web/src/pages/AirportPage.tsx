@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { api } from '../api/client';
+import SearchInput from '../components/SearchInput';
 
 interface AirportData {
   icaoId: string;
@@ -123,17 +124,17 @@ export default function AirportPage() {
   const [tab, setTab] = useState<Tab>('overview');
   const [highlightIap, setHighlightIap] = useState(false);
 
-  async function handleSearch(e: React.FormEvent) {
-    e.preventDefault();
-    const id = icao.trim().toUpperCase();
+  async function doSearch(id: string) {
     if (!id) return;
 
+    setIcao(id);
     setLoading(true);
     setError('');
     setAirport(null);
     setCharts(null);
     setTab('overview');
     setHighlightIap(false);
+    api.history.record(id, 'airport');
 
     try {
       const [info, chartData] = await Promise.all([
@@ -148,6 +149,11 @@ export default function AirportPage() {
     } finally {
       setLoading(false);
     }
+  }
+
+  function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    doSearch(icao.trim().toUpperCase());
   }
 
   const wind = airport ? parseMetarWind(airport.metar ?? '') : null;
@@ -166,13 +172,13 @@ export default function AirportPage() {
         </p>
       </div>
 
-      <form onSubmit={handleSearch} className="flex gap-3">
-        <input
-          className="input w-40"
-          placeholder="ICAO"
-          maxLength={4}
+      <form onSubmit={handleSubmit} className="flex gap-3">
+        <SearchInput
           value={icao}
-          onChange={(e) => setIcao(e.target.value)}
+          onChange={setIcao}
+          onSelect={(id) => doSearch(id)}
+          searchType="airport"
+          loading={loading}
         />
         <button className="btn-primary" type="submit" disabled={loading}>
           {loading ? 'Loading…' : 'Lookup'}
