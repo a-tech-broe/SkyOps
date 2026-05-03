@@ -324,6 +324,27 @@ jobs:
       - name: Terraform Apply
         run: terraform apply -auto-approve -input=false tfplan
 
+      - name: Ensure app SG allows monitoring scrape
+        run: |
+          REGION="${{ secrets.AWS_REGION || 'us-east-1' }}"
+          APP_SG_ID=$(aws ec2 describe-security-groups \
+            --filters "Name=group-name,Values=skyops-sg" \
+            --query "SecurityGroups[0].GroupId" --output text --region "$REGION")
+          MONIT_SG_ID=$(aws ec2 describe-security-groups \
+            --filters "Name=group-name,Values=skyops-monitoring-sg" \
+            --query "SecurityGroups[0].GroupId" --output text --region "$REGION")
+          echo "App SG: $APP_SG_ID  Monitoring SG: $MONIT_SG_ID"
+          for port in 3001 9100 8082; do
+            aws ec2 authorize-security-group-ingress \
+              --group-id "$APP_SG_ID" \
+              --region "$REGION" \
+              --ip-permissions \
+                "IpProtocol=tcp,FromPort=${port},ToPort=${port},UserIdGroupPairs=[{GroupId=${MONIT_SG_ID}}]" \
+              2>/dev/null \
+              && echo "Added rule: port $port from monitoring SG" \
+              || echo "Rule already exists: port $port from monitoring SG"
+          done
+
       - name: Wait for EC2 instance to pass status checks
         run: |
           REGION="${{ secrets.AWS_REGION || 'us-east-1' }}"
@@ -656,6 +677,11 @@ jobs:
             cd /opt/monit
             sudo docker compose pull
             sudo docker compose up -d --remove-orphans
+            # Reload Prometheus config to pick up any target changes
+            sleep 5
+            sudo docker compose exec -T prometheus \
+              wget -q --post-data='' http://localhost:9090/-/reload -O /dev/null \
+              && echo "Prometheus config reloaded" || echo "Reload skipped (first start)"
         env:
           GRAFANA_ADMIN_PASSWORD: ${{ secrets.GRAFANA_ADMIN_PASSWORD }}
           APP_EC2_IP:             ${{ secrets.EC2_HOST }}
