@@ -2,6 +2,13 @@ import { useState } from 'react';
 import { api } from '../api/client';
 import SearchInput from '../components/SearchInput';
 
+interface RunwayInfo {
+  id: string;         // "06L/24R"
+  dimension: string;  // "8926x150"
+  surface: string;    // "A"=asphalt, "C"=concrete, "G"=gravel, "T"=turf
+  alignment: number;  // magnetic heading from the low-numbered end
+}
+
 interface AirportData {
   icaoId: string;
   iataId: string;
@@ -11,9 +18,9 @@ interface AirportData {
   lat: number;
   lon: number;
   elev: number;
-  rwyDir: string;
-  rwyLen: number;
-  metar: string;
+  runways: RunwayInfo[];
+  metar?: string;
+  freqs?: string;
 }
 
 interface Chart {
@@ -32,27 +39,33 @@ type Tab = 'overview' | 'runways' | 'charts';
 
 const CHART_ORDER: Record<string, number> = { APD: 0, IAP: 1, DP: 2, STAR: 3, MIN: 4, HOT: 5 };
 
-function parseRunways(rwyDir: string): { id: string; heading: number }[] {
-  // rwyDir is a comma-separated list like "18/36, 09/27"
-  const runways: { id: string; heading: number }[] = [];
-  if (!rwyDir) return runways;
+const SURFACE_LABELS: Record<string, string> = {
+  A: 'Asphalt', C: 'Concrete', G: 'Gravel', T: 'Turf', D: 'Dirt',
+};
 
-  const pairs = rwyDir.split(',').map((s) => s.trim());
-  for (const pair of pairs) {
-    const ends = pair.split('/').map((s) => s.trim());
-    for (const end of ends) {
-      const num = parseInt(end.replace(/[LRC]/, ''), 10);
-      if (!isNaN(num)) {
-        runways.push({ id: end, heading: num * 10 });
-      }
-    }
+interface RwyEnd {
+  id: string;       // "06L" or "24R"
+  pairId: string;   // "06L/24R"
+  heading: number;  // degrees
+  lengthFt: number;
+  surface: string;
+}
+
+function expandRunways(runways: RunwayInfo[]): RwyEnd[] {
+  const ends: RwyEnd[] = [];
+  for (const rwy of runways) {
+    const [endA, endB] = rwy.id.split('/');
+    const lengthFt = parseInt(rwy.dimension?.split('x')[0] ?? '0', 10) || 0;
+    const headingA = rwy.alignment;
+    const headingB = (rwy.alignment + 180) % 360;
+    ends.push({ id: endA, pairId: rwy.id, heading: headingA, lengthFt, surface: rwy.surface });
+    ends.push({ id: endB, pairId: rwy.id, heading: headingB, lengthFt, surface: rwy.surface });
   }
-  return runways;
+  return ends;
 }
 
 function parseMetarWind(metar: string): { dir: number; speed: number } | null {
   if (!metar) return null;
-  // METAR wind group: dddssKT or dddssGggKT — dir may be VRB
   const m = metar.match(/\b(\d{3}|VRB)(\d{2,3})(?:G\d{2,3})?KT\b/);
   if (!m || m[1] === 'VRB') return null;
   return { dir: parseInt(m[1], 10), speed: parseInt(m[2], 10) };
@@ -61,16 +74,14 @@ function parseMetarWind(metar: string): { dir: number; speed: number } | null {
 function parseMetarFlightRules(metar: string): 'VFR' | 'MVFR' | 'IFR' | 'LIFR' {
   if (!metar) return 'VFR';
 
-  // Visibility: "1/2SM", "1 1/2SM", "10SM", "M1/4SM"
   let vis = Infinity;
-  const visFull = metar.match(/\bM?(\d+)SM\b/);
-  const visFrac = metar.match(/\bM?(\d+)\/(\d+)SM\b/);
   const visMixed = metar.match(/\b(\d+)\s+(\d+)\/(\d+)SM\b/);
+  const visFrac = metar.match(/\bM?(\d+)\/(\d+)SM\b/);
+  const visFull = metar.match(/\bM?(\d+(?:\.\d+)?)SM\b/);
   if (visMixed) vis = parseInt(visMixed[1]) + parseInt(visMixed[2]) / parseInt(visMixed[3]);
   else if (visFrac) vis = parseInt(visFrac[1]) / parseInt(visFrac[2]);
-  else if (visFull) vis = parseInt(visFull[1]);
+  else if (visFull) vis = parseFloat(visFull[1]);
 
-  // Ceiling: lowest BKN/OVC/OVX layer in hundreds of feet
   let ceiling = Infinity;
   const ceilRe = /\b(BKN|OVC|OVX)(\d{3})\b/g;
   let cm: RegExpExecArray | null;
@@ -87,13 +98,6 @@ function parseMetarFlightRules(metar: string): 'VFR' | 'MVFR' | 'IFR' | 'LIFR' {
 function headingDiff(a: number, b: number): number {
   const diff = Math.abs(a - b) % 360;
   return diff > 180 ? 360 - diff : diff;
-}
-
-function getActiveRunways(runways: { id: string; heading: number }[], windDir: number) {
-  // Land into the wind — pick runway whose heading is closest to wind direction
-  return runways
-    .map((rwy) => ({ ...rwy, diff: headingDiff(rwy.heading, windDir) }))
-    .sort((a, b) => a.diff - b.diff);
 }
 
 function groupCharts(charts: Chart[]): Record<string, Chart[]> {
@@ -156,11 +160,22 @@ export default function AirportPage() {
     doSearch(icao.trim().toUpperCase());
   }
 
-  const wind = airport ? parseMetarWind(airport.metar ?? '') : null;
-  const flightRules = airport ? parseMetarFlightRules(airport.metar ?? '') : null;
+  const metar = airport?.metar ?? '';
+  const wind = parseMetarWind(metar);
+  const flightRules = airport ? parseMetarFlightRules(metar) : null;
   const isIfr = flightRules === 'IFR' || flightRules === 'LIFR';
-  const runways = airport ? parseRunways(airport.rwyDir ?? '') : [];
-  const rankedRunways = wind ? getActiveRunways(runways, wind.dir) : runways.map((r) => ({ ...r, diff: null }));
+
+  const rwyEnds = airport?.runways ? expandRunways(airport.runways) : [];
+  const rankedEnds = wind
+    ? rwyEnds
+        .map((r) => ({ ...r, diff: headingDiff(r.heading, wind.dir) }))
+        .sort((a, b) => a.diff - b.diff)
+    : rwyEnds.map((r) => ({ ...r, diff: null as null | number }));
+
+  const longestFt = airport?.runways?.length
+    ? Math.max(...airport.runways.map((r) => parseInt(r.dimension?.split('x')[0] ?? '0', 10) || 0))
+    : 0;
+
   const hasApproaches = charts && !charts.international && charts.charts.some((c) => c.code === 'IAP');
 
   return (
@@ -193,7 +208,7 @@ export default function AirportPage() {
 
       {airport && (
         <div className="card space-y-4">
-          {/* Airport header */}
+          {/* Header */}
           <div>
             <div className="flex items-baseline gap-3">
               <h2 className="text-2xl font-bold font-mono text-slate-900 dark:text-white">
@@ -205,8 +220,7 @@ export default function AirportPage() {
             </div>
             <p className="text-slate-700 dark:text-slate-300 mt-0.5">{airport.name}</p>
             <p className="text-slate-500 text-sm">
-              {airport.state && `${airport.state}, `}
-              {airport.country}
+              {airport.state && `${airport.state}, `}{airport.country}
             </p>
           </div>
 
@@ -224,6 +238,11 @@ export default function AirportPage() {
                 ].join(' ')}
               >
                 {t}
+                {t === 'runways' && rwyEnds.length > 0 && (
+                  <span className="ml-1.5 text-xs bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-300 rounded-full px-1.5 py-0.5">
+                    {airport.runways.length}
+                  </span>
+                )}
                 {t === 'charts' && charts && charts.charts.length > 0 && (
                   <span className="ml-1.5 text-xs bg-sky-100 dark:bg-sky-900 text-sky-600 dark:text-sky-300 rounded-full px-1.5 py-0.5">
                     {charts.charts.length}
@@ -242,8 +261,8 @@ export default function AirportPage() {
                   label="Coordinates"
                   value={`${airport.lat?.toFixed(4)}° N, ${airport.lon?.toFixed(4)}°`}
                 />
-                {airport.rwyLen > 0 && (
-                  <Stat label="Longest Runway" value={`${airport.rwyLen.toLocaleString()} ft`} />
+                {longestFt > 0 && (
+                  <Stat label="Longest Runway" value={`${longestFt.toLocaleString()} ft`} />
                 )}
               </div>
 
@@ -257,9 +276,7 @@ export default function AirportPage() {
                   <div className="flex items-center gap-3">
                     <span className={[
                       'text-xs font-bold tracking-widest px-2 py-0.5 rounded',
-                      flightRules === 'LIFR'
-                        ? 'bg-fuchsia-600 text-white'
-                        : 'bg-red-600 text-white',
+                      flightRules === 'LIFR' ? 'bg-fuchsia-600 text-white' : 'bg-red-600 text-white',
                     ].join(' ')}>
                       {flightRules}
                     </span>
@@ -286,11 +303,11 @@ export default function AirportPage() {
                 </div>
               )}
 
-              {airport.metar && (
+              {metar && (
                 <div>
                   <p className="text-xs text-slate-500 uppercase tracking-wider mb-1">Current METAR</p>
                   <p className="text-slate-700 dark:text-slate-300 font-mono text-sm bg-slate-100 dark:bg-slate-950 rounded-lg p-3 break-all">
-                    {airport.metar}
+                    {metar}
                   </p>
                 </div>
               )}
@@ -314,30 +331,33 @@ export default function AirportPage() {
           {/* Runways tab */}
           {tab === 'runways' && (
             <div className="space-y-3">
-              {runways.length === 0 ? (
+              {rwyEnds.length === 0 ? (
                 <p className="text-slate-500 text-sm">No runway data available.</p>
               ) : (
                 <>
-                  {wind && (
+                  {wind ? (
                     <p className="text-xs text-slate-500">
-                      Runways sorted by wind favor (
+                      Sorted by wind favor —{' '}
                       <span className="font-mono">
-                        {String(wind.dir).padStart(3, '0')}°/{wind.speed} kt
+                        {String(wind.dir).padStart(3, '0')}° at {wind.speed} kt
                       </span>
-                      ). Best option at top.
+                    </p>
+                  ) : (
+                    <p className="text-xs text-slate-400">
+                      No wind data available. Headings shown for reference.
                     </p>
                   )}
+
                   <div className="space-y-2">
-                    {rankedRunways.map((rwy, i) => {
+                    {rankedEnds.map((rwy, i) => {
                       const isBest = wind && i === 0;
-                      const crosswind =
-                        wind && rwy.diff != null
-                          ? Math.round(Math.abs(Math.sin((rwy.diff * Math.PI) / 180) * wind.speed))
-                          : null;
-                      const headwind =
-                        wind && rwy.diff != null
-                          ? Math.round(Math.abs(Math.cos((rwy.diff * Math.PI) / 180) * wind.speed))
-                          : null;
+                      const xw = wind && rwy.diff != null
+                        ? Math.round(Math.abs(Math.sin((rwy.diff * Math.PI) / 180) * wind.speed))
+                        : null;
+                      const hw = wind && rwy.diff != null
+                        ? Math.round(Math.abs(Math.cos((rwy.diff * Math.PI) / 180) * wind.speed))
+                        : null;
+                      const surfaceLabel = SURFACE_LABELS[rwy.surface] ?? rwy.surface;
 
                       return (
                         <div
@@ -349,26 +369,33 @@ export default function AirportPage() {
                               : 'bg-slate-100 dark:bg-slate-950',
                           ].join(' ')}
                         >
-                          <div className="flex items-center gap-3">
+                          <div className="flex items-center gap-3 min-w-0">
                             {isBest && (
-                              <span className="text-xs font-semibold text-green-600 dark:text-green-400 uppercase tracking-wide">
+                              <span className="text-xs font-semibold text-green-600 dark:text-green-400 uppercase tracking-wide flex-shrink-0">
                                 Best
                               </span>
                             )}
-                            <span className="font-mono font-bold text-slate-900 dark:text-white text-lg">
-                              RWY {rwy.id}
+                            <span className="font-mono font-bold text-slate-900 dark:text-white text-lg flex-shrink-0">
+                              {rwy.id}
                             </span>
-                            <span className="text-slate-500 text-sm font-mono">
-                              HDG {String(rwy.heading).padStart(3, '0')}°
-                            </span>
+                            <div className="flex flex-col min-w-0">
+                              <span className="text-slate-500 text-xs font-mono">
+                                HDG {String(rwy.heading).padStart(3, '0')}°
+                              </span>
+                              <span className="text-slate-400 text-xs">
+                                {rwy.lengthFt > 0 ? `${rwy.lengthFt.toLocaleString()} ft` : ''}{' '}
+                                {surfaceLabel}
+                              </span>
+                            </div>
                           </div>
-                          {wind && headwind !== null && crosswind !== null && (
-                            <div className="flex gap-3 text-xs text-slate-500 font-mono">
+
+                          {wind && hw !== null && xw !== null && (
+                            <div className="flex gap-3 text-xs text-slate-500 font-mono flex-shrink-0">
                               <span>
-                                <span className="text-slate-400">HW</span> {headwind} kt
+                                <span className="text-slate-400">HW</span> {hw} kt
                               </span>
                               <span>
-                                <span className="text-slate-400">XW</span> {crosswind} kt
+                                <span className="text-slate-400">XW</span> {xw} kt
                               </span>
                             </div>
                           )}
@@ -376,12 +403,6 @@ export default function AirportPage() {
                       );
                     })}
                   </div>
-
-                  {!wind && (
-                    <p className="text-xs text-slate-400 mt-2">
-                      No wind data — look up METAR to see runway recommendations.
-                    </p>
-                  )}
                 </>
               )}
             </div>
@@ -483,11 +504,7 @@ function WindArrow({ dir }: { dir: number }) {
       style={{ transform: `rotate(${dir}deg)` }}
       title={`Wind from ${dir}°`}
     >
-      <svg
-        className="w-4 h-4 text-sky-600 dark:text-sky-400"
-        viewBox="0 0 24 24"
-        fill="currentColor"
-      >
+      <svg className="w-4 h-4 text-sky-600 dark:text-sky-400" viewBox="0 0 24 24" fill="currentColor">
         <path d="M12 2L7 10h5v12h2V10h5L12 2z" />
       </svg>
     </div>

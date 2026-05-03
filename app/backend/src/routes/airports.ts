@@ -6,8 +6,20 @@ const router = Router();
 
 router.get('/:icao', async (req, res, next) => {
   try {
-    const data = await aviationWeather.airport(req.params.icao);
-    res.json(data[0] ?? null);
+    const icao = req.params.icao.toUpperCase();
+    const [airportRes, metarRes] = await Promise.allSettled([
+      aviationWeather.airport(icao),
+      aviationWeather.metar(icao),
+    ]);
+
+    const airport = airportRes.status === 'fulfilled' ? (airportRes.value[0] ?? null) : null;
+    if (!airport) return res.json(null);
+
+    if (metarRes.status === 'fulfilled' && metarRes.value[0]) {
+      (airport as Record<string, unknown>).metar = (metarRes.value[0] as { rawOb: string }).rawOb;
+    }
+
+    res.json(airport);
   } catch (err) {
     next(err);
   }
