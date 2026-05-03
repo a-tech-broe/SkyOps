@@ -5,6 +5,8 @@ Aviation tools for GA pilots — Weather · NOTAMs · Airports · Currency
 [![CI](https://github.com/a-tech-broe/SkyOps/actions/workflows/ci.yml/badge.svg)](https://github.com/a-tech-broe/SkyOps/actions/workflows/ci.yml)
 [![CD](https://github.com/a-tech-broe/SkyOps/actions/workflows/cd.yml/badge.svg)](https://github.com/a-tech-broe/SkyOps/actions/workflows/cd.yml)
 
+> Powered by [ATechBroe](https://atechbroe.com)
+
 ---
 
 ## Features
@@ -12,6 +14,7 @@ Aviation tools for GA pilots — Weather · NOTAMs · Airports · Currency
 - **Weather** — METAR · TAF · PIREPs · SIGMETs · AIRMETs with VFR/MVFR/IFR/LIFR flight rules color coding
 - **NOTAMs** — Full text lookup via FAA API
 - **Airports** — Info, runways, coordinates, elevation (global ICAO coverage)
+- **Light / Dark mode** — Toggle in the nav bar; preference persists across sessions
 - **Currency** — DB schema ready for pilot logbook & currency tracking
 
 ## Flight Rules
@@ -30,25 +33,26 @@ Aviation tools for GA pilots — Weather · NOTAMs · Airports · Currency
 ```
 SkyOps/
 ├── app/
-│   ├── backend/                # Node.js 22 + Express + TypeScript API
-│   ├── web/                    # React 18 + Vite + Tailwind CSS
-│   ├── mobile/                 # Expo (React Native) + Expo Router
-│   ├── docker-compose.yml      # Build from source (local prod simulation)
-│   └── docker-compose.dev.yml  # Dev with hot reload
+│   ├── backend/                    # Node.js 22 + Express + TypeScript API + prom-client metrics
+│   ├── web/                        # React 18 + Vite + Tailwind CSS (light/dark mode)
+│   ├── mobile/                     # Expo (React Native) + Expo Router
+│   ├── docker-compose.yml          # Build from source (local prod simulation)
+│   └── docker-compose.dev.yml      # Dev with hot reload
 ├── infra/
-│   ├── terraform/              # AWS EC2 + ALB + ACM provisioning (Terraform ≥ 1.6)
-│   └── docker-compose.prod.yml # EC2 runtime compose (pre-built DockerHub images)
-├── monit/                      # Production monitoring stack
-│   ├── docker-compose.yml      # Prometheus · Grafana · Alertmanager · Loki · Promtail · cAdvisor · Blackbox
-│   ├── prometheus/             # Scrape configs + alert rules
-│   ├── grafana/                # Auto-provisioned datasources + SkyOps dashboard
-│   ├── alertmanager/           # Notification routing (Slack / email)
-│   ├── loki/                   # Log aggregation config
-│   ├── promtail/               # Docker log collector
-│   └── blackbox/               # Endpoint uptime probes
+│   ├── terraform/                  # AWS — EC2 × 2, ALB, ACM, IAM, SGs (Terraform ≥ 1.8)
+│   ├── docker-compose.prod.yml     # App EC2 runtime (web + backend + db)
+│   ├── docker-compose.exporters.yml# App EC2 exporters (node-exporter · cAdvisor · Promtail)
+│   └── promtail-app.yml            # Promtail config — ships container + system logs to Loki
+├── monit/                          # Monitoring EC2 stack
+│   ├── docker-compose.yml          # Prometheus · Grafana · Alertmanager · Loki · Blackbox
+│   ├── prometheus/                 # Scrape configs + alert rules
+│   ├── grafana/                    # Auto-provisioned datasources + SkyOps dashboard
+│   ├── alertmanager/               # Notification routing (Slack / email)
+│   ├── loki/                       # Log aggregation (30-day retention)
+│   └── blackbox/                   # Endpoint uptime probes
 └── .github/workflows/
     ├── ci.yml   # PR / dev — lint · scan · build · infra plan
-    └── cd.yml   # main    — build · push · infra apply · deploy · monitoring · smoke test
+    └── cd.yml   # main    — build · push · infra apply · deploy · exporters · monitoring · smoke test
 ```
 
 ---
@@ -57,13 +61,13 @@ SkyOps/
 
 | Layer | Tech |
 |---|---|
-| Web | React 18 + Vite + Tailwind CSS |
+| Web | React 18 + Vite + Tailwind CSS (dark mode via class strategy) |
 | Mobile | Expo (React Native) + Expo Router |
 | API | Node.js 22 + Express + TypeScript + prom-client |
 | Database | PostgreSQL 16 |
 | Containers | Docker + Docker Compose |
-| Infra | Terraform → AWS EC2 (Amazon Linux 2023) + ALB + ACM |
-| Monitoring | Prometheus · Grafana · Alertmanager · Loki · Promtail · cAdvisor · Blackbox Exporter |
+| Infra | Terraform → AWS (2× EC2 m5.xlarge, ALB, ACM, IAM) |
+| Monitoring | Prometheus · Grafana · Alertmanager · Loki · Promtail · cAdvisor · node-exporter · Blackbox |
 
 ---
 
@@ -127,9 +131,10 @@ Runs all security gates, then:
 | Job | What happens |
 |---|---|
 | Build & push | Multi-arch (`amd64` + `arm64`) → DockerHub + Trivy scan + Cosign sign + SBOM |
-| Infra apply | `terraform apply` — provisions or updates EC2, ALB, ACM certificate |
-| Deploy | SSH → writes `.env` + `docker-compose.prod.yml` → `docker compose pull && up` |
-| Deploy monitoring | SCP `monit/` → EC2 → `docker compose up` monitoring stack |
+| Infra apply | `terraform apply` — provisions EC2 × 2, ALB, ACM, SGs; enforces scrape ingress rules |
+| Deploy | SSH → app EC2 — writes `.env` + `docker-compose.prod.yml` → `docker compose up` |
+| Deploy exporters | SSH → app EC2 — starts node-exporter, cAdvisor, Promtail (ships logs to Loki) |
+| Deploy monitoring | SSH → monitoring EC2 — injects app EC2 IP into prometheus.yml, starts full stack |
 | Production smoke test | HTTPS `curl` against `APP_DOMAIN`: `/health`, web HTML, weather and airport endpoints |
 | Summary | Release digest table + `cosign verify` instructions |
 
@@ -139,28 +144,26 @@ Runs all security gates, then:
 |---|---|
 | `DOCKERHUB_USERNAME` | CD — push, sign, deploy |
 | `DOCKERHUB_TOKEN` | CD — push |
-| `DB_USER` | CD — written to EC2 `.env` |
-| `DB_PASSWORD` | CD — written to EC2 `.env` |
-| `FAA_CLIENT_ID` | CD — written to EC2 `.env` |
-| `FAA_CLIENT_SECRET` | CD — written to EC2 `.env` |
-| `APP_DOMAIN` | CD — domain for ACM cert and smoke tests (e.g. `skyops.example.com`) |
+| `DB_USER` | CD — written to app EC2 `.env` |
+| `DB_PASSWORD` | CD — written to app EC2 `.env` |
+| `FAA_CLIENT_ID` | CD — written to app EC2 `.env` |
+| `FAA_CLIENT_SECRET` | CD — written to app EC2 `.env` |
+| `APP_DOMAIN` | CD — ACM cert domain + smoke tests (e.g. `skyops.example.com`) |
 | `HOSTED_ZONE_ID` | CI/CD — Route53 hosted zone ID for auto DNS validation + A records (optional) |
-| `GRAFANA_ADMIN_PASSWORD` | CD — Grafana admin account password |
+| `GRAFANA_ADMIN_PASSWORD` | CD — Grafana admin password |
 | `AWS_ACCESS_KEY_ID` | CI infra plan + CD infra apply |
 | `AWS_SECRET_ACCESS_KEY` | CI infra plan + CD infra apply |
 | `AWS_REGION` | Optional — defaults to `us-east-1` |
 | `TF_BACKEND_BUCKET` | Terraform S3 state bucket name |
 | `TF_BACKEND_DYNAMO_TABLE` | Terraform DynamoDB lock table name |
-| `EC2_HOST` | App server Elastic IP (pre-existing EIP — set before first deploy) |
-| `MONITOR_HOST` | Monitoring server Elastic IP (pre-existing EIP — set before first deploy) |
-| `EC2_SSH_KEY` | CD deploy — private key content (PEM) |
+| `EC2_HOST` | App server Elastic IP — allocate before first deploy, set as secret |
+| `MONITOR_HOST` | Monitoring server Elastic IP — allocate before first deploy, set as secret |
+| `EC2_SSH_KEY` | Private key content (PEM) for both EC2s |
 | `SEMGREP_APP_TOKEN` | Optional — enables Semgrep cloud dashboard |
 
 ---
 
-## EC2 + ALB Deployment
-
-Infrastructure is in `infra/terraform/`. Provisioning happens automatically on every merge to `main` via `cd.yml`.
+## Infrastructure
 
 ### Architecture
 
@@ -171,45 +174,50 @@ Internet
 Application Load Balancer  (HTTPS :443 — TLS terminated)
    │  HTTP :80 → 301 redirect to HTTPS
    │
-   ├── /api/*  ──────────────────────────────► EC2 :3001  (Node.js API)
-   ├── /health ──────────────────────────────► EC2 :3001
-   └── /*  ──────────────────────────────────► EC2 :80    (nginx → React)
+   ├── /api/*  ──────► App EC2 :3001  (Node.js API)
+   ├── /health ──────► App EC2 :3001
+   └── /*      ──────► App EC2 :80    (nginx → React SPA)
 
-EC2 instance (same host, separate Compose project)
-   └── :3000  ──── Grafana  (restricted to allowed_ssh_cidr)
+App EC2  (m5.xlarge)                    Monitoring EC2  (m5.xlarge)
+├── web          :80                    ├── Prometheus      :9090
+├── backend      :3001  ◄── scrape ─────┤
+├── node-exporter:9100  ◄── scrape ─────┤
+├── cAdvisor     :8082  ◄── scrape ─────┤
+└── Promtail ────── push logs ─────────►├── Loki            :3100
+                                        ├── Grafana         :3000
+                                        ├── Alertmanager    :9093
+                                        └── Blackbox        (internal)
 ```
 
-The EC2 security group accepts ports 80 and 3001 **only from the ALB**. Port 3000 (Grafana) and port 22 (SSH) are restricted to `allowed_ssh_cidr`.
+Security groups are locked down: scrape ports (3001, 9100, 8082) on the app EC2 accept traffic **only from the monitoring security group**. Grafana, Prometheus, and Alertmanager on the monitoring EC2 are restricted to `allowed_ssh_cidr`.
 
 ### What gets provisioned
 
 | Resource | Detail |
 |---|---|
-| EC2 | Amazon Linux 2023, `m5.xlarge`, 20 GB gp3 encrypted |
+| App EC2 | Amazon Linux 2023, `m5.xlarge`, 20 GB gp3 encrypted |
+| Monitoring EC2 | Amazon Linux 2023, `m5.xlarge`, 30 GB gp3 encrypted |
 | ALB | Application Load Balancer — HTTP→HTTPS redirect, path-based routing |
-| ACM | TLS certificate for `APP_DOMAIN` + `www.APP_DOMAIN` — DNS validated |
-| Internet Gateway | Attached to default VPC, route table managed by Terraform |
-| Security groups | ALB SG (80+443 public); EC2 SG (80+3001 from ALB; 22+3000 restricted) |
+| ACM | TLS certificate for `APP_DOMAIN` — DNS validated |
+| Internet Gateway | Attached to default VPC |
+| Security groups | ALB SG (80+443 public); App SG; Monitoring SG — all with `prevent_destroy` |
 | IAM role | Least-privilege — SSM read-only scoped to `/skyops/*` |
-| Elastic IP | Static address for SSH + Grafana access |
+| Elastic IPs | Pre-allocated — referenced as data sources, never recreated by Terraform |
+
+All resources use `lifecycle { prevent_destroy = true }` — Terraform will never destroy existing infrastructure.
 
 ### First-time setup
 
-1. Allocate two Elastic IPs in your AWS account — one for the app server, one for the monitoring server
-2. Add all GitHub Secrets listed above — set `EC2_HOST` and `MONITOR_HOST` to those EIP addresses **before the first run**
+1. Allocate two Elastic IPs in your AWS account (one for app, one for monitoring)
+2. Set `EC2_HOST` and `MONITOR_HOST` GitHub Secrets to those IPs **before the first run**
 3. Create an EC2 key pair named `keyit` in your AWS account
 4. Register a domain and point it at AWS (Route53 recommended)
-5. Push to `main` — `cd.yml` provisions everything, deploys the app, and starts monitoring
-6. **With Route53 (`HOSTED_ZONE_ID` set):** DNS validation and A records are created automatically
-7. **Without Route53:** Check `terraform output acm_validation_records` and add the CNAMEs at your registrar, then re-run the workflow
+5. Add all remaining GitHub Secrets listed above
+6. Push to `main` — the pipeline provisions both servers, deploys the app, and starts the full monitoring stack
 
-### DNS without Route53
+**With Route53 (`HOSTED_ZONE_ID` set):** DNS validation and A records are created automatically.
 
-1. Go to **Actions → latest CD run → Infra Apply → Terraform Outputs**
-2. Find `acm_validation_records` — add those CNAMEs at your DNS provider
-3. Find `alb_dns_name` — create a CNAME from `APP_DOMAIN` → ALB DNS name
-4. Wait for the ACM certificate to reach **Issued** in AWS Console → Certificate Manager
-5. Re-run the CD workflow
+**Without Route53:** Check `terraform output acm_validation_records`, add the CNAMEs at your registrar, then re-run the workflow.
 
 ### Manual infra operations
 
@@ -225,59 +233,71 @@ terraform init \
 
 terraform plan   # preview
 terraform apply  # provision
-terraform destroy # tear down
 ```
 
 ---
 
 ## Monitoring
 
-The `monit/` stack runs as a separate Docker Compose project on the same EC2 instance and is deployed automatically by every CD run.
+The app EC2 runs lightweight exporters; a dedicated monitoring EC2 runs the full observability stack. Both are deployed automatically on every CD run.
 
 ### Access
 
-| Service | URL |
-|---|---|
-| Grafana | `http://<EC2_IP>:3000` — login: `admin` / `GRAFANA_ADMIN_PASSWORD` |
-| Prometheus | Internal only (`prometheus:9090`) |
-| Alertmanager | Internal only (`alertmanager:9093`) |
+| Service | URL | Auth |
+|---|---|---|
+| Grafana | `http://<MONITOR_HOST>:3000` | `admin` / `GRAFANA_ADMIN_PASSWORD` |
+| Prometheus | `http://<MONITOR_HOST>:9090` | None (restricted by SG) |
+| Alertmanager | `http://<MONITOR_HOST>:9093` | None (restricted by SG) |
 
 ### What's collected
 
-| Source | Metrics |
+| Source | Location | Data |
+|---|---|---|
+| Backend `/metrics` | App EC2 :3001 | HTTP request rate, latency (p50/p95/p99), error rate |
+| node-exporter | App EC2 :9100 | CPU, memory, disk, network, system load |
+| cAdvisor | App EC2 :8082 | Per-container CPU, memory, restarts |
+| Blackbox Exporter | Monitoring EC2 | External uptime probes (`/health`, web) |
+| Promtail → Loki | App EC2 → Monitoring EC2 | All container logs + system logs (30-day retention) |
+
+### Querying logs in Grafana
+
+Go to **Explore → Loki** and use label selectors:
+
+| Query | What you see |
 |---|---|
-| Backend (`/metrics`) | HTTP request rate, latency (p50/p95/p99), error rate — by endpoint |
-| Node Exporter | CPU, memory, disk, network, system load |
-| cAdvisor | Per-container CPU, memory, restarts |
-| Blackbox Exporter | Endpoint uptime probes (backend `/health`, web) |
-| Promtail → Loki | All container logs + system logs (30-day retention) |
+| `{service="backend"}` | Node.js backend logs |
+| `{service="web"}` | Nginx access + error logs |
+| `{service="db"}` | Postgres logs |
+| `{job="system", host="skyops-app"}` | OS-level logs |
+| `{service="backend"} \|= "ERROR"` | Backend errors only |
 
 ### Pre-built dashboard
 
-The **SkyOps — App & Infra** dashboard auto-provisions in Grafana under the **SkyOps** folder with panels for:
+The **SkyOps — App & Infra** dashboard auto-provisions in Grafana with panels for:
+
 - Service uptime status
 - Request rate by endpoint
 - P50 / P95 / P99 latency
 - HTTP error rate by status code
 - CPU and memory usage
 - Disk usage
-- Container CPU and memory
+- Per-container CPU and memory
 - Live backend logs (via Loki)
 
 ### Alerts
 
-Alerts are defined in `monit/prometheus/alerts/` and routed through Alertmanager. To activate notifications, edit `monit/alertmanager/alertmanager.yml` and configure a Slack webhook or email receiver.
+Alerts are defined in `monit/prometheus/alerts/` and routed through Alertmanager. To enable notifications, edit `monit/alertmanager/alertmanager.yml` and configure a Slack webhook or email receiver.
 
 | Alert | Condition |
 |---|---|
-| `BackendDown` | Backend unreachable for > 1 min |
-| `HighErrorRate` | > 5% of requests returning 5xx for > 2 min |
-| `SlowAPIResponse` | P95 latency > 2s on any endpoint for > 5 min |
-| `EndpointDown` | Blackbox probe failing for > 2 min |
+| `BackendDown` | Backend unreachable > 1 min |
+| `HighErrorRate` | > 5% 5xx responses for > 2 min |
+| `SlowAPIResponse` | P95 latency > 2s for > 5 min |
+| `EndpointDown` | Blackbox probe failing > 2 min |
 | `HighCPU` | CPU > 80% for > 5 min |
 | `LowMemory` | < 15% memory available for > 5 min |
 | `DiskSpaceLow` | < 20% disk remaining |
-| `ContainerDown` | backend, web, or db container missing for > 2 min |
+| `ContainerDown` | backend, web, or db container missing > 2 min |
 
 ---
 
