@@ -501,18 +501,28 @@ jobs:
                 docker_sd_configs:
                   - host: unix:///var/run/docker.sock
                     refresh_interval: 5s
+                    filters:
+                      - name: status
+                        values: [running]
                 relabel_configs:
                   - source_labels: [__meta_docker_container_name]
                     regex: /(.*)
                     target_label: container
                   - source_labels: [__meta_docker_compose_service]
                     target_label: service
+                  - source_labels: [__meta_docker_compose_project]
+                    target_label: project
+                  - source_labels: [__meta_docker_container_log_stream]
+                    target_label: logstream
+                  - replacement: skyops-app
+                    target_label: host
               - job_name: system
                 static_configs:
                   - targets: [localhost]
                     labels:
                       job: system
-                      __path__: /var/log/{messages,secure}
+                      host: skyops-app
+                      __path__: /var/log/{messages,secure,cloud-init.log}
             PROMTAIL
             # Install Docker if missing
             if ! command -v docker &>/dev/null; then
@@ -573,7 +583,7 @@ jobs:
             sudo tee /opt/monit/.env > /dev/null <<EOF
             GRAFANA_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD}
             EOF
-            # Write prometheus.yml with actual app EC2 IP injected
+            # Write prometheus.yml with actual app EC2 IP and domain injected
             sudo tee /opt/monit/prometheus/prometheus.yml > /dev/null <<'PROM'
             global:
               scrape_interval: 15s
@@ -589,21 +599,29 @@ jobs:
               - /etc/prometheus/alerts/*.yml
             scrape_configs:
               - job_name: skyops-backend
+                metrics_path: /metrics
                 static_configs:
                   - targets: [APP_EC2_IP:3001]
-                metrics_path: /metrics
+                    labels:
+                      instance: skyops-app
               - job_name: node-exporter
                 static_configs:
                   - targets: [APP_EC2_IP:9100]
+                    labels:
+                      instance: skyops-app
               - job_name: cadvisor
+                metrics_path: /metrics
                 static_configs:
                   - targets: [APP_EC2_IP:8082]
+                    labels:
+                      instance: skyops-app
                 metric_relabel_configs:
                   - source_labels: [container_label_com_docker_compose_service]
                     target_label: service
                   - regex: container_label_.+
                     action: labeldrop
               - job_name: prometheus
+                metrics_path: /metrics
                 static_configs:
                   - targets: [localhost:9090]
               - job_name: blackbox-http

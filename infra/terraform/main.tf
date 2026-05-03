@@ -156,7 +156,6 @@ resource "aws_security_group" "skyops" {
 
   lifecycle {
     prevent_destroy = true
-    ignore_changes  = [ingress, egress]
   }
 }
 

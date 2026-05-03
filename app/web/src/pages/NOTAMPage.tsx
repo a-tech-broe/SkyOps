@@ -54,8 +54,8 @@ export default function NOTAMPage() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-bold text-white">NOTAMs</h1>
-        <p className="text-slate-400 text-sm mt-1">Notices to Air Missions via FAA API</p>
+        <h1 className="text-2xl font-bold text-slate-900 dark:text-white">NOTAMs</h1>
+        <p className="text-slate-500 dark:text-slate-400 text-sm mt-1">Notices to Air Missions via FAA API</p>
       </div>
 
       <form onSubmit={handleSearch} className="flex gap-3">
@@ -72,7 +72,7 @@ export default function NOTAMPage() {
       </form>
 
       {error && (
-        <div className="bg-amber-500/10 border border-amber-500/30 rounded-lg p-4 text-amber-400 text-sm">
+        <div className="bg-amber-500/10 border border-amber-500/30 rounded-lg p-4 text-amber-600 dark:text-amber-400 text-sm">
           {error}
         </div>
       )}
@@ -88,7 +88,7 @@ export default function NOTAMPage() {
             return (
               <div key={n.id ?? i} className="card space-y-2">
                 <div className="flex items-center justify-between">
-                  <span className="text-blue-400 font-mono text-sm font-semibold">
+                  <span className="text-blue-500 dark:text-blue-400 font-mono text-sm font-semibold">
                     {n.number}
                   </span>
                   <span className="text-slate-500 text-xs font-mono">{n.type}</span>
@@ -96,7 +96,7 @@ export default function NOTAMPage() {
                 <p className="text-xs text-slate-500 font-mono">
                   {n.effectiveStart} → {n.effectiveEnd}
                 </p>
-                <p className="text-slate-300 text-sm font-mono whitespace-pre-wrap">{n.text}</p>
+                <p className="text-slate-700 dark:text-slate-300 text-sm font-mono whitespace-pre-wrap">{n.text}</p>
               </div>
             );
           })}

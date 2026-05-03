@@ -55,7 +55,6 @@ resource "aws_security_group" "monitoring" {
 
   lifecycle {
     prevent_destroy = true
-    ignore_changes  = [ingress, egress]
   }
 }
 

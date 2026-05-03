@@ -27,9 +27,9 @@ receivers:
     #     title: '[{{ .Status | toUpper }}] {{ .CommonLabels.alertname }}'
     #     text: '{{ range .Alerts }}{{ .Annotations.description }}{{ end }}'
 
-    # email_configs:
-    #   - to: 'ops@example.com'
-    #     send_resolved: true
+    email_configs:
+      - to: 'shehujp35@gmail.com'
+        send_resolved: true
 
   - name: critical
     # webhook_configs:
@@ -38,6 +38,9 @@ receivers:
     # email_configs:
     #   - to: 'ops@example.com'
     #     send_resolved: true
+    email_configs:
+      - to: 'shehujp35@gmail.com'
+        send_resolved: true
 
 inhibit_rules:
   - source_matchers: [severity="critical"]
