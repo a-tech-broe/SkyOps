@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { aviationWeather } from '../services/aviationWeather';
-import { getAirportCharts, getCurrentCycle } from '../services/charts';
+import { getAirportCharts } from '../services/charts';
 
 const router = Router();
 
@@ -23,8 +23,7 @@ router.get('/:icao/charts', async (req, res, next) => {
       return res.json({ cycle: null, charts: [], international: true });
     }
 
-    const cycle  = getCurrentCycle();
-    const charts = await getAirportCharts(upper);
+    const { charts, cycle } = await getAirportCharts(upper);
     res.json({ cycle, charts });
   } catch (err) {
     next(err);
