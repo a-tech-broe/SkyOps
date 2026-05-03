@@ -13,6 +13,22 @@ resource "aws_security_group" "monitoring" {
   }
 
   ingress {
+    description = "Prometheus"
+    from_port   = 9090
+    to_port     = 9090
+    protocol    = "tcp"
+    cidr_blocks = [var.allowed_ssh_cidr]
+  }
+
+  ingress {
+    description = "Alertmanager"
+    from_port   = 9093
+    to_port     = 9093
+    protocol    = "tcp"
+    cidr_blocks = [var.allowed_ssh_cidr]
+  }
+
+  ingress {
     description = "SSH"
     from_port   = 22
     to_port     = 22
