@@ -29,28 +29,82 @@ export function getCurrentCycle(): string {
   return '2604';
 }
 
+function previousCycle(cycle: string): string {
+  const yy = parseInt(cycle.slice(0, 2), 10);
+  const nn = parseInt(cycle.slice(2), 10);
+  if (nn > 1) return `${String(yy).padStart(2, '0')}${String(nn - 1).padStart(2, '0')}`;
+  // Go to last cycle of previous year — calculate how many 28-day periods fit
+  const prevYy = yy - 1;
+  const prevKey = 2000 + prevYy;
+  const curKey  = 2000 + yy;
+  const prevStart = CYCLE_01_STARTS[prevKey];
+  const curStart  = CYCLE_01_STARTS[curKey];
+  if (prevStart && curStart) {
+    const days = Math.round(
+      (new Date(curStart).getTime() - new Date(prevStart).getTime()) / 86400000
+    );
+    const numCycles = Math.floor(days / 28);
+    return `${String(prevYy).padStart(2, '0')}${String(numCycles).padStart(2, '0')}`;
+  }
+  return `${String(prevYy).padStart(2, '0')}13`;
+}
+
 let cachedCycle = '';
 let cachedXml = '';
 const chartCache = new Map<string, Chart[]>();
 
-async function ensureXml(cycle: string): Promise<string> {
-  if (cachedCycle === cycle && cachedXml) return cachedXml;
+async function tryFetchXml(cycle: string): Promise<string | null> {
   const url = `https://aeronav.faa.gov/d-tpp/${cycle}/xml_data/d-TPP_Metafile.xml`;
-  const res = await fetch(url, { signal: AbortSignal.timeout(30_000) });
-  if (!res.ok) throw new Error(`d-TPP index unavailable (${res.status})`);
-  cachedXml = await res.text();
-  cachedCycle = cycle;
+  console.log(`[charts] fetching ${url}`);
+  try {
+    const res = await fetch(url, { signal: AbortSignal.timeout(30_000) });
+    if (!res.ok) {
+      console.warn(`[charts] cycle ${cycle} returned HTTP ${res.status}`);
+      return null;
+    }
+    const text = await res.text();
+    console.log(`[charts] cycle ${cycle} — XML ${text.length} bytes`);
+    return text;
+  } catch (err) {
+    console.warn(`[charts] cycle ${cycle} fetch error:`, err);
+    return null;
+  }
+}
+
+async function ensureXml(cycle: string): Promise<{ xml: string; cycle: string }> {
+  if (cachedCycle === cycle && cachedXml) return { xml: cachedXml, cycle };
+
+  let xml = await tryFetchXml(cycle);
+  let usedCycle = cycle;
+
+  if (!xml) {
+    // Fall back to the previous cycle (published cycle may be one behind)
+    const prev = previousCycle(cycle);
+    console.log(`[charts] falling back to previous cycle ${prev}`);
+    xml = await tryFetchXml(prev);
+    usedCycle = prev;
+  }
+
+  if (!xml) throw new Error(`d-TPP index unavailable for cycle ${cycle}`);
+
+  cachedXml = xml;
+  cachedCycle = usedCycle;
   chartCache.clear();
-  return cachedXml;
+  return { xml, cycle: usedCycle };
 }
 
 function parseCharts(xml: string, icao: string, cycle: string): Chart[] {
-  const airportRe = new RegExp(
-    `<airport[^>]+icao_ident="${icao.toUpperCase()}"[^>]*>([\\s\\S]*?)<\\/airport>`,
-    'i'
-  );
-  const airportMatch = xml.match(airportRe);
-  if (!airportMatch) return [];
+  const upper = icao.toUpperCase();
+
+  // Try icao_ident attribute first; some records only carry ID
+  let airportMatch =
+    xml.match(new RegExp(`<airport[^>]+icao_ident="${upper}"[^>]*>([\\s\\S]*?)<\\/airport>`, 'i')) ??
+    xml.match(new RegExp(`<airport[^>]*\\bID="${upper}"[^>]*>([\\s\\S]*?)<\\/airport>`, 'i'));
+
+  if (!airportMatch) {
+    console.log(`[charts] airport ${upper} not found in XML`);
+    return [];
+  }
 
   const section = airportMatch[1];
   const charts: Chart[] = [];
@@ -70,18 +124,22 @@ function parseCharts(xml: string, icao: string, cycle: string): Chart[] {
       charts.push({ code, name, pdfUrl: `https://aeronav.faa.gov/d-tpp/${cycle}/${pdf}` });
     }
   }
+
+  console.log(`[charts] ${upper}: ${charts.length} charts`);
   return charts;
 }
 
-export async function getAirportCharts(icao: string): Promise<Chart[]> {
+export async function getAirportCharts(icao: string): Promise<{ charts: Chart[]; cycle: string }> {
   const upper = icao.toUpperCase();
-  const cycle  = getCurrentCycle();
-  const key    = `${cycle}:${upper}`;
+  const cycle = getCurrentCycle();
+  const key   = `${cycle}:${upper}`;
 
-  if (chartCache.has(key)) return chartCache.get(key)!;
+  if (chartCache.has(key)) {
+    return { charts: chartCache.get(key)!, cycle };
+  }
 
-  const xml    = await ensureXml(cycle);
-  const charts = parseCharts(xml, upper, cycle);
+  const { xml, cycle: usedCycle } = await ensureXml(cycle);
+  const charts = parseCharts(xml, upper, usedCycle);
   chartCache.set(key, charts);
-  return charts;
+  return { charts, cycle: usedCycle };
 }
