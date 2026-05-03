@@ -95,6 +95,20 @@ function parseMetarFlightRules(metar: string): 'VFR' | 'MVFR' | 'IFR' | 'LIFR' {
   return 'VFR';
 }
 
+// Extract the airport diagram chart (APD code)
+function getApdChart(charts: Chart[] | undefined): Chart | null {
+  return charts?.find((c) => c.code === 'APD') ?? null;
+}
+
+// Match IAP charts whose name references a specific runway end (e.g. "24R", "06L", "18")
+function getApproachesForRunway(charts: Chart[] | undefined, runwayId: string): Chart[] {
+  if (!charts) return [];
+  // Strip leading zero so "06L" → "6L" then "0*6L" matches both "6L" and "06L" in chart names
+  const stripped = runwayId.replace(/^0+/, '');
+  const re = new RegExp(`\\bRWY\\s+0*${stripped}\\b`, 'i');
+  return charts.filter((c) => c.code === 'IAP' && re.test(c.name));
+}
+
 function headingDiff(a: number, b: number): number {
   const diff = Math.abs(a - b) % 360;
   return diff > 180 ? 360 - diff : diff;
@@ -330,7 +344,40 @@ export default function AirportPage() {
 
           {/* Runways tab */}
           {tab === 'runways' && (
-            <div className="space-y-3">
+            <div className="space-y-4">
+              {/* Airport Diagram */}
+              {(() => {
+                const apd = getApdChart(charts?.charts);
+                if (!apd) return null;
+                return (
+                  <div>
+                    <div className="flex items-center justify-between mb-2">
+                      <p className="text-xs text-slate-500 uppercase tracking-wider">Airport Diagram</p>
+                      <a
+                        href={apd.pdfUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-xs text-sky-500 hover:text-sky-600 font-medium flex items-center gap-1"
+                      >
+                        Full screen
+                        <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                        </svg>
+                      </a>
+                    </div>
+                    <div className="rounded-lg overflow-hidden border border-slate-200 dark:border-slate-700 bg-slate-100 dark:bg-slate-950">
+                      <iframe
+                        src={apd.pdfUrl}
+                        title="Airport Diagram"
+                        className="w-full"
+                        style={{ height: '520px' }}
+                      />
+                    </div>
+                  </div>
+                );
+              })()}
+
+              {/* Runway list */}
               {rwyEnds.length === 0 ? (
                 <p className="text-slate-500 text-sm">No runway data available.</p>
               ) : (
@@ -344,11 +391,11 @@ export default function AirportPage() {
                     </p>
                   ) : (
                     <p className="text-xs text-slate-400">
-                      No wind data available. Headings shown for reference.
+                      No wind data. Headings shown for reference.
                     </p>
                   )}
 
-                  <div className="space-y-2">
+                  <div className="space-y-3">
                     {rankedEnds.map((rwy, i) => {
                       const isBest = wind && i === 0;
                       const xw = wind && rwy.diff != null
@@ -358,45 +405,74 @@ export default function AirportPage() {
                         ? Math.round(Math.abs(Math.cos((rwy.diff * Math.PI) / 180) * wind.speed))
                         : null;
                       const surfaceLabel = SURFACE_LABELS[rwy.surface] ?? rwy.surface;
+                      const approaches = getApproachesForRunway(charts?.charts, rwy.id);
 
                       return (
                         <div
                           key={rwy.id}
                           className={[
-                            'rounded-lg p-3 flex items-center justify-between gap-4',
+                            'rounded-lg overflow-hidden border',
                             isBest
-                              ? 'bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-700'
-                              : 'bg-slate-100 dark:bg-slate-950',
+                              ? 'border-green-200 dark:border-green-700'
+                              : 'border-slate-200 dark:border-slate-700',
                           ].join(' ')}
                         >
-                          <div className="flex items-center gap-3 min-w-0">
-                            {isBest && (
-                              <span className="text-xs font-semibold text-green-600 dark:text-green-400 uppercase tracking-wide flex-shrink-0">
-                                Best
+                          {/* Runway header row */}
+                          <div className={[
+                            'flex items-center justify-between gap-4 px-3 py-2.5',
+                            isBest
+                              ? 'bg-green-50 dark:bg-green-900/20'
+                              : 'bg-slate-100 dark:bg-slate-900',
+                          ].join(' ')}>
+                            <div className="flex items-center gap-3 min-w-0">
+                              {isBest && (
+                                <span className="text-xs font-semibold text-green-600 dark:text-green-400 uppercase tracking-wide flex-shrink-0">
+                                  Best
+                                </span>
+                              )}
+                              <span className="font-mono font-bold text-slate-900 dark:text-white text-lg flex-shrink-0">
+                                {rwy.id}
                               </span>
-                            )}
-                            <span className="font-mono font-bold text-slate-900 dark:text-white text-lg flex-shrink-0">
-                              {rwy.id}
-                            </span>
-                            <div className="flex flex-col min-w-0">
-                              <span className="text-slate-500 text-xs font-mono">
-                                HDG {String(rwy.heading).padStart(3, '0')}°
-                              </span>
-                              <span className="text-slate-400 text-xs">
-                                {rwy.lengthFt > 0 ? `${rwy.lengthFt.toLocaleString()} ft` : ''}{' '}
-                                {surfaceLabel}
-                              </span>
+                              <div className="flex flex-col min-w-0">
+                                <span className="text-slate-500 text-xs font-mono">
+                                  HDG {String(rwy.heading).padStart(3, '0')}°
+                                </span>
+                                <span className="text-slate-400 text-xs">
+                                  {rwy.lengthFt > 0 ? `${rwy.lengthFt.toLocaleString()} ft` : ''}{surfaceLabel ? ` · ${surfaceLabel}` : ''}
+                                </span>
+                              </div>
                             </div>
+
+                            {wind && hw !== null && xw !== null && (
+                              <div className="flex gap-3 text-xs text-slate-500 font-mono flex-shrink-0">
+                                <span><span className="text-slate-400">HW</span> {hw} kt</span>
+                                <span><span className="text-slate-400">XW</span> {xw} kt</span>
+                              </div>
+                            )}
                           </div>
 
-                          {wind && hw !== null && xw !== null && (
-                            <div className="flex gap-3 text-xs text-slate-500 font-mono flex-shrink-0">
-                              <span>
-                                <span className="text-slate-400">HW</span> {hw} kt
-                              </span>
-                              <span>
-                                <span className="text-slate-400">XW</span> {xw} kt
-                              </span>
+                          {/* Approach plates for this runway */}
+                          {approaches.length > 0 && (
+                            <div className="border-t border-slate-200 dark:border-slate-700 divide-y divide-slate-100 dark:divide-slate-800">
+                              {approaches.map((chart) => (
+                                <a
+                                  key={chart.pdfUrl}
+                                  href={chart.pdfUrl}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="flex items-center justify-between px-3 py-2 bg-white dark:bg-slate-950 hover:bg-sky-50 dark:hover:bg-sky-900/20 transition-colors group"
+                                >
+                                  <span className="text-xs font-mono text-slate-600 dark:text-slate-400 group-hover:text-sky-600 dark:group-hover:text-sky-400">
+                                    {chart.name}
+                                  </span>
+                                  <svg
+                                    className="w-3.5 h-3.5 text-slate-300 group-hover:text-sky-400 flex-shrink-0 ml-2"
+                                    fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}
+                                  >
+                                    <path strokeLinecap="round" strokeLinejoin="round" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                                  </svg>
+                                </a>
+                              ))}
                             </div>
                           )}
                         </div>
