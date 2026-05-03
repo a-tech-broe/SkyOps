@@ -44,8 +44,8 @@ export default function AirportPage() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-bold text-white">Airport Info</h1>
-        <p className="text-slate-400 text-sm mt-1">Location · Elevation · Runways</p>
+        <h1 className="text-2xl font-bold text-slate-900 dark:text-white">Airport Info</h1>
+        <p className="text-slate-500 dark:text-slate-400 text-sm mt-1">Location · Elevation · Runways</p>
       </div>
 
       <form onSubmit={handleSearch} className="flex gap-3">
@@ -62,7 +62,7 @@ export default function AirportPage() {
       </form>
 
       {error && (
-        <div className="bg-red-500/10 border border-red-500/30 rounded-lg p-4 text-red-400 text-sm">
+        <div className="bg-red-500/10 border border-red-500/30 rounded-lg p-4 text-red-600 dark:text-red-400 text-sm">
           {error}
         </div>
       )}
@@ -71,12 +71,12 @@ export default function AirportPage() {
         <div className="card space-y-4">
           <div>
             <div className="flex items-baseline gap-3">
-              <h2 className="text-2xl font-bold font-mono text-white">{airport.icaoId}</h2>
+              <h2 className="text-2xl font-bold font-mono text-slate-900 dark:text-white">{airport.icaoId}</h2>
               {airport.iataId && (
                 <span className="text-slate-500 font-mono text-sm">{airport.iataId}</span>
               )}
             </div>
-            <p className="text-slate-300 mt-0.5">{airport.name}</p>
+            <p className="text-slate-700 dark:text-slate-300 mt-0.5">{airport.name}</p>
             <p className="text-slate-500 text-sm">
               {airport.state && `${airport.state}, `}{airport.country}
             </p>
@@ -96,7 +96,7 @@ export default function AirportPage() {
           {airport.rwyDir && (
             <div>
               <p className="text-xs text-slate-500 uppercase tracking-wider mb-1">Runways</p>
-              <p className="text-slate-300 font-mono text-sm">{airport.rwyDir}</p>
+              <p className="text-slate-700 dark:text-slate-300 font-mono text-sm">{airport.rwyDir}</p>
             </div>
           )}
         </div>
@@ -107,9 +107,9 @@ export default function AirportPage() {
 
 function Stat({ label, value }: { label: string; value: string }) {
   return (
-    <div className="bg-slate-950 rounded-lg p-3">
+    <div className="bg-slate-100 dark:bg-slate-950 rounded-lg p-3">
       <p className="text-xs text-slate-500 uppercase tracking-wider">{label}</p>
-      <p className="text-slate-100 font-mono text-sm mt-1">{value}</p>
+      <p className="text-slate-800 dark:text-slate-100 font-mono text-sm mt-1">{value}</p>
     </div>
   );
 }
