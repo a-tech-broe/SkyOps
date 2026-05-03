@@ -17,5 +17,8 @@ export const api = {
     sigmets: () => get(`/weather/sigmets`),
   },
   notams: (icao: string) => get(`/notams/${icao}`),
-  airports: (icao: string) => get(`/airports/${icao}`),
+  airports: {
+    info: (icao: string) => get(`/airports/${icao}`),
+    charts: (icao: string) => get(`/airports/${icao}/charts`),
+  },
 };
