@@ -596,7 +596,7 @@ jobs:
           host: ${{ secrets.MONITOR_HOST }}
           username: ec2-user
           key: ${{ secrets.EC2_SSH_KEY }}
-          envs: GRAFANA_ADMIN_PASSWORD,APP_EC2_IP,APP_DOMAIN
+          envs: GRAFANA_ADMIN_PASSWORD
           script: |
             set -e
             sudo mkdir -p /opt/monit
@@ -661,9 +661,9 @@ jobs:
                   - target_label: __address__
                     replacement: blackbox:9115
             PROM
-            # Replace placeholders with real values
-            sudo sed -i "s/APP_EC2_IP/${APP_EC2_IP}/g" /opt/monit/prometheus/prometheus.yml
-            sudo sed -i "s/APP_DOMAIN/${APP_DOMAIN}/g"  /opt/monit/prometheus/prometheus.yml
+            # Replace placeholders — expanded by Actions runner before SSH, not the remote shell
+            sudo sed -i "s/APP_EC2_IP/${{ secrets.EC2_HOST }}/g"   /opt/monit/prometheus/prometheus.yml
+            sudo sed -i "s/APP_DOMAIN/${{ secrets.APP_DOMAIN }}/g" /opt/monit/prometheus/prometheus.yml
             # Install Docker if missing
             if ! command -v docker &>/dev/null; then
               sudo dnf install -y docker && sudo systemctl enable --now docker
@@ -684,8 +684,6 @@ jobs:
               && echo "Prometheus config reloaded" || echo "Reload skipped (first start)"
         env:
           GRAFANA_ADMIN_PASSWORD: ${{ secrets.GRAFANA_ADMIN_PASSWORD }}
-          APP_EC2_IP:             ${{ secrets.EC2_HOST }}
-          APP_DOMAIN:             ${{ secrets.APP_DOMAIN }}
 
   # ── 8. Production smoke test ──────────────────────────────────────
   smoke-prod:
