@@ -4,8 +4,10 @@ import helmet from 'helmet';
 import weatherRouter from './routes/weather';
 import notamsRouter from './routes/notams';
 import airportsRouter from './routes/airports';
+import historyRouter from './routes/history';
 import { errorHandler } from './middleware/errorHandler';
 import { metricsMiddleware, register } from './middleware/metrics';
+import { initDb } from './db/pool';
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -24,9 +26,10 @@ app.get('/metrics', async (_, res) => {
 app.use('/api/weather', weatherRouter);
 app.use('/api/notams', notamsRouter);
 app.use('/api/airports', airportsRouter);
+app.use('/api/history', historyRouter);
 
 app.use(errorHandler);
 
-app.listen(PORT, () => {
-  console.log(`SkyOps API running on port ${PORT}`);
-});
+initDb()
+  .then(() => app.listen(PORT, () => console.log(`SkyOps API running on port ${PORT}`)))
+  .catch((err) => { console.error('DB init failed:', err); process.exit(1); });

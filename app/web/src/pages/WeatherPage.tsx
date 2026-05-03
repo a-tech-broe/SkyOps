@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { api } from '../api/client';
 import MetarDisplay, { MetarData } from '../components/MetarDisplay';
 import TafDisplay, { TafData } from '../components/TafDisplay';
+import SearchInput from '../components/SearchInput';
 
 interface Pirep {
   rawOb: string;
@@ -18,17 +19,17 @@ export default function WeatherPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
-  async function handleSearch(e: React.FormEvent) {
-    e.preventDefault();
-    const id = icao.trim().toUpperCase();
+  async function doSearch(id: string) {
     if (!id || id.length < 3) return;
 
+    setIcao(id);
     setLoading(true);
     setError('');
     setMetar(null);
     setTaf(null);
     setPireps([]);
     setQuery(id);
+    api.history.record(id, 'weather');
 
     try {
       const [metarRes, tafRes, pirepRes] = await Promise.allSettled([
@@ -59,6 +60,11 @@ export default function WeatherPage() {
     }
   }
 
+  function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    doSearch(icao.trim().toUpperCase());
+  }
+
   return (
     <div className="space-y-6">
       <div>
@@ -66,13 +72,13 @@ export default function WeatherPage() {
         <p className="text-slate-500 dark:text-slate-400 text-sm mt-1">METAR · TAF · PIREPs</p>
       </div>
 
-      <form onSubmit={handleSearch} className="flex gap-3">
-        <input
-          className="input w-40"
-          placeholder="ICAO"
-          maxLength={4}
+      <form onSubmit={handleSubmit} className="flex gap-3">
+        <SearchInput
           value={icao}
-          onChange={(e) => setIcao(e.target.value)}
+          onChange={setIcao}
+          onSelect={(id) => doSearch(id)}
+          searchType="weather"
+          loading={loading}
         />
         <button className="btn-primary" type="submit" disabled={loading}>
           {loading ? 'Loading…' : 'Brief'}

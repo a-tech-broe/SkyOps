@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { api } from '../api/client';
+import SearchInput from '../components/SearchInput';
 
 interface Notam {
   properties: {
@@ -32,14 +33,14 @@ export default function NOTAMPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
-  async function handleSearch(e: React.FormEvent) {
-    e.preventDefault();
-    const id = icao.trim().toUpperCase();
+  async function doSearch(id: string) {
     if (!id) return;
 
+    setIcao(id);
     setLoading(true);
     setError('');
     setData(null);
+    api.history.record(id, 'notam');
 
     try {
       const res = await api.notams(id);
@@ -51,6 +52,11 @@ export default function NOTAMPage() {
     }
   }
 
+  function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    doSearch(icao.trim().toUpperCase());
+  }
+
   return (
     <div className="space-y-6">
       <div>
@@ -58,13 +64,13 @@ export default function NOTAMPage() {
         <p className="text-slate-500 dark:text-slate-400 text-sm mt-1">Notices to Air Missions via FAA API</p>
       </div>
 
-      <form onSubmit={handleSearch} className="flex gap-3">
-        <input
-          className="input w-40"
-          placeholder="ICAO"
-          maxLength={4}
+      <form onSubmit={handleSubmit} className="flex gap-3">
+        <SearchInput
           value={icao}
-          onChange={(e) => setIcao(e.target.value)}
+          onChange={setIcao}
+          onSelect={(id) => doSearch(id)}
+          searchType="notam"
+          loading={loading}
         />
         <button className="btn-primary" type="submit" disabled={loading}>
           {loading ? 'Loading…' : 'Fetch'}
