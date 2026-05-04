@@ -5,6 +5,7 @@ import weatherRouter from './routes/weather';
 import notamsRouter from './routes/notams';
 import airportsRouter from './routes/airports';
 import historyRouter from './routes/history';
+import windsRouter from './routes/winds';
 import { errorHandler } from './middleware/errorHandler';
 import { metricsMiddleware, register } from './middleware/metrics';
 import { initDb } from './db/pool';
@@ -27,6 +28,7 @@ app.use('/api/weather', weatherRouter);
 app.use('/api/notams', notamsRouter);
 app.use('/api/airports', airportsRouter);
 app.use('/api/history', historyRouter);
+app.use('/api/winds', windsRouter);
 
 app.use(errorHandler);
 

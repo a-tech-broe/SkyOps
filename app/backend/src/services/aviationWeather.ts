@@ -77,4 +77,7 @@ export const aviationWeather = {
 
   airport: (icao: string) =>
     get<Record<string, unknown>[]>(`/airport?ids=${icao.toUpperCase()}&format=json`),
+
+  airportBbox: (south: number, north: number, west: number, east: number) =>
+    get<Record<string, unknown>[]>(`/airport?bbox=${south},${west},${north},${east}&format=json`),
 };

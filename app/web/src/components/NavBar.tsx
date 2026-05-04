@@ -4,6 +4,10 @@ const links = [
   { to: '/weather', label: 'Weather' },
   { to: '/notams', label: 'NOTAMs' },
   { to: '/airports', label: 'Airports' },
+  { to: '/winds', label: 'Winds' },
+  { to: '/route', label: 'Briefing' },
+  { to: '/currency', label: 'Currency' },
+  { to: '/dispatch', label: 'Dispatch' },
 ];
 
 interface Props {
