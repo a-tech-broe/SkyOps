@@ -13,7 +13,8 @@ Aviation tools for GA pilots — Weather · NOTAMs · Airports · Currency
 
 - **Weather** — METAR · TAF · PIREPs · SIGMETs · AIRMETs with VFR/MVFR/IFR/LIFR flight rules color coding
 - **NOTAMs** — Full text lookup via FAA API
-- **Airports** — Info, runways, coordinates, elevation (global ICAO coverage) + FAA approach plates and IFR alerts
+- **Airports** — Info · runways ranked by wind favor · embedded airport diagram · per-runway approach plates · IFR/LIFR alert
+- **Search history** — Every ICAO lookup is persisted in Postgres per device; history dropdown appears on all search inputs
 - **Light / Dark mode** — Toggle in the nav bar; preference persists across sessions
 - **Currency** — DB schema ready for pilot logbook & currency tracking
 
@@ -36,19 +37,28 @@ The Airport page is designed for preflight planning — useful for both student 
 
 | Tab | Contents |
 |---|---|
-| **Overview** | Name, location, elevation, coordinates, longest runway, current METAR, wind direction indicator |
-| **Runways** | All runways ranked by wind favor with headwind and crosswind components per runway |
-| **Charts** | FAA d-TPP approach plates grouped by type, linked directly to current-cycle PDFs |
+| **Overview** | Name, location, elevation, coordinates, longest runway, current METAR, wind direction indicator, IFR/LIFR alert banner |
+| **Runways** | Embedded airport diagram (APD) for taxi planning, then all runway ends ranked by wind favor with per-runway approach plate links |
+| **Charts** | Full FAA d-TPP chart list grouped by type, linked to current-cycle PDFs |
 
 ### Runway Wind Analysis
 
-Runways are sorted by how well they align with the reported surface wind. For each runway the page shows:
+Runway ends are sorted by how well they align with the reported surface wind. For each end the page shows:
 
 - **HW** — headwind component in knots
 - **XW** — crosswind component in knots
-- **Best** badge on the most favorable runway
+- **Best** badge on the most favorable end
+- Runway length and surface type (Asphalt, Concrete, Gravel, Turf)
 
-Wind is parsed from the live METAR attached to the airport record.
+Wind is parsed from the live METAR fetched alongside airport data.
+
+### Embedded Airport Diagram
+
+If an Airport Diagram (APD) exists in the current AIRAC cycle, it is rendered inline at the top of the Runways tab as a scrollable PDF — no need to open a separate tab for taxi routing. A **Full screen** link opens the PDF in a new tab.
+
+### Per-Runway Approach Plates
+
+Each runway end card expands to list every IAP chart whose name references that runway (e.g. `ILS OR LOC RWY 24R`, `RNAV (GPS) Z RWY 24R`). Clicking any plate opens the PDF in a new tab. This means a pilot can see wind favor, surface type, and all available instrument approaches for a specific runway in a single view.
 
 ### IFR / LIFR Alert
 
@@ -59,7 +69,7 @@ When the METAR indicates IFR or LIFR conditions **and** the airport has FAA appr
 | IFR | Red |
 | LIFR | Magenta |
 
-The banner includes a **View Approaches →** button that jumps directly to the Charts tab with the Instrument Approaches (IAP) section highlighted.
+The banner includes a **View Approaches →** button that jumps to the Charts tab with the Instrument Approaches (IAP) section highlighted.
 
 ### FAA d-TPP Charts
 
@@ -74,7 +84,32 @@ Chart data is sourced from the FAA digital Terminal Procedures Publication (d-TP
 | MIN | Takeoff Minimums & Obstacle Departure Procedures |
 | HOT | Airport Hot Spots |
 
-Charts are updated automatically each [AIRAC cycle](https://en.wikipedia.org/wiki/AIRAC) (28-day interval). The current cycle identifier is shown at the top of the Charts tab. The backend caches the d-TPP XML index in memory and clears it on cycle change.
+Charts are updated automatically each [AIRAC cycle](https://en.wikipedia.org/wiki/AIRAC) (28-day interval). The current cycle identifier is shown at the top of the Charts tab. The backend caches the d-TPP XML index in memory and clears it on cycle change. If the current cycle index is unavailable on the FAA server, the previous cycle is used as a fallback automatically.
+
+---
+
+## Search History
+
+Every ICAO lookup (Weather, NOTAMs, Airports) is persisted in PostgreSQL tied to an anonymous device UUID stored in `localStorage`. History is per-device and survives browser restarts.
+
+### How it works
+
+1. On first visit the browser generates a UUID and stores it as `skyops_device_id` in `localStorage`
+2. Every search fires a background `POST /api/history` with the device ID, ICAO, and search type
+3. Clicking any search input fetches `GET /api/history?deviceId=...&type=...` and shows a dropdown of recent lookups (deduplicated by airport, most recent first, top 10)
+4. Selecting a history item fills the field and immediately triggers the search
+
+### Database schema
+
+```sql
+CREATE TABLE search_history (
+  id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  device_id   TEXT NOT NULL,
+  icao        TEXT NOT NULL,
+  search_type TEXT NOT NULL,   -- 'airport' | 'weather' | 'notam'
+  searched_at TIMESTAMPTZ DEFAULT NOW()
+);
+```
 
 ---
 
