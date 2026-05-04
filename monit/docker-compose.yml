@@ -3,17 +3,28 @@ services:
   prometheus:
     image: prom/prometheus:v2.51.2
     restart: unless-stopped
+    environment:
+      APP_EC2_IP: ${APP_EC2_IP}
+      APP_DOMAIN: ${APP_DOMAIN}
+    entrypoint:
+      - /bin/sh
+      - -c
+      - >-
+        sed -e "s/APP_EC2_IP/$${APP_EC2_IP}/g"
+        -e "s/APP_DOMAIN/$${APP_DOMAIN}/g"
+        /etc/prometheus/prometheus.tpl.yml
+        > /tmp/prometheus.yml
+        && exec /bin/prometheus
+        --config.file=/tmp/prometheus.yml
+        --storage.tsdb.retention.time=30d
+        --web.enable-lifecycle
+        --web.enable-admin-api
     ports:
       - "9090:9090"
     volumes:
-      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.tpl.yml:ro
       - ./prometheus/alerts:/etc/prometheus/alerts:ro
       - prometheus_data:/prometheus
-    command:
-      - --config.file=/etc/prometheus/prometheus.yml
-      - --storage.tsdb.retention.time=30d
-      - --web.enable-lifecycle
-      - --web.enable-admin-api
     networks: [monit]
 
   grafana:
