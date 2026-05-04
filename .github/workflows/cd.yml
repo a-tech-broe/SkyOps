@@ -181,7 +181,8 @@ jobs:
           COSIGN_EXPERIMENTAL: '1'
 
       - name: Generate SBOM
-        uses: anchore/sbom-action@v0
+        uses: anchore/sbom-action@v0.18.0
+        continue-on-error: true
         with:
           image: ${{ secrets.DOCKERHUB_USERNAME }}/skyops-${{ matrix.service }}@${{ steps.build.outputs.digest }}
           format: spdx-json
