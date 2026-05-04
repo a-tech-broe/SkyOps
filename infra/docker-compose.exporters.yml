@@ -27,8 +27,6 @@ services:
     privileged: true
     ports:
       - "8082:8080"
-    devices:
-      - /dev/kmsg
     volumes:
       - /:/rootfs:ro
       - /var/run:/var/run:ro
