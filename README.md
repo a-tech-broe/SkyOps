@@ -205,7 +205,7 @@ SkyOps/
 │   ├── terraform/                  # AWS — EC2 × 2, ALB, ACM, IAM, SGs (Terraform ≥ 1.8)
 │   ├── docker-compose.prod.yml     # App EC2 runtime (web + backend + db)
 │   ├── docker-compose.exporters.yml# App EC2 exporters (node-exporter · cAdvisor · Promtail)
-│   └── promtail-app.yml            # Promtail config — ships container + system logs to Loki
+│   └── promtail-app.yml            # Promtail config — Docker SD + system logs → Loki (private IP)
 ├── monit/                          # Monitoring EC2 stack
 │   ├── docker-compose.yml          # Prometheus · Grafana · Alertmanager · Loki · Blackbox
 │   ├── prometheus/                 # Scrape configs + alert rules
