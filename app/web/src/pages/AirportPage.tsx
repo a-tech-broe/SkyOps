@@ -1,6 +1,8 @@
 import { useState } from 'react';
 import { api } from '../api/client';
 import SearchInput from '../components/SearchInput';
+import { getSunTimes, formatUtc } from '../utils/sun';
+import { densityAltitude, parseFrequencies } from '../utils/aviation';
 
 interface RunwayInfo {
   id: string;         // "06L/24R"
@@ -36,6 +38,13 @@ interface ChartsResponse {
 }
 
 type Tab = 'overview' | 'runways' | 'charts';
+
+interface AlternateApt {
+  icaoId: string;
+  name: string;
+  distNm: number;
+  metar: string | null;
+}
 
 const CHART_ORDER: Record<string, number> = { APD: 0, IAP: 1, DP: 2, STAR: 3, MIN: 4, HOT: 5 };
 
@@ -141,6 +150,22 @@ export default function AirportPage() {
   const [error, setError] = useState('');
   const [tab, setTab] = useState<Tab>('overview');
   const [highlightIap, setHighlightIap] = useState(false);
+  const [altimInput, setAltimInput] = useState('29.92');
+  const [oatInput, setOatInput] = useState('');
+  const [alternates, setAlternates] = useState<AlternateApt[] | null>(null);
+  const [altLoading, setAltLoading] = useState(false);
+
+  async function loadAlternates(airportIcao: string) {
+    setAltLoading(true);
+    try {
+      const result = await api.airports.alternates(airportIcao) as AlternateApt[];
+      setAlternates(result);
+    } catch {
+      setAlternates([]);
+    } finally {
+      setAltLoading(false);
+    }
+  }
 
   async function doSearch(id: string) {
     if (!id) return;
@@ -152,6 +177,7 @@ export default function AirportPage() {
     setCharts(null);
     setTab('overview');
     setHighlightIap(false);
+    setAlternates(null);
     api.history.record(id, 'airport');
 
     try {
@@ -178,6 +204,12 @@ export default function AirportPage() {
   const wind = parseMetarWind(metar);
   const flightRules = airport ? parseMetarFlightRules(metar) : null;
   const isIfr = flightRules === 'IFR' || flightRules === 'LIFR';
+
+  const sunTimes = airport ? getSunTimes(new Date(), airport.lat, airport.lon) : null;
+  const freqs = airport?.freqs ? parseFrequencies(airport.freqs) : [];
+  const altim = parseFloat(altimInput) || 29.92;
+  const oat = parseFloat(oatInput);
+  const da = airport && !isNaN(oat) ? densityAltitude(airport.elev, altim, oat) : null;
 
   const rwyEnds = airport?.runways ? expandRunways(airport.runways) : [];
   const rankedEnds = wind
@@ -339,6 +371,122 @@ export default function AirportPage() {
                   </span>
                 </div>
               )}
+
+              {/* Sunrise / Sunset */}
+              {sunTimes && (sunTimes.sunrise || sunTimes.sunset) && (
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                  {sunTimes.sunrise && (
+                    <Stat label="Sunrise (UTC)" value={formatUtc(sunTimes.sunrise)} />
+                  )}
+                  {sunTimes.sunset && (
+                    <Stat label="Sunset (UTC)" value={formatUtc(sunTimes.sunset)} />
+                  )}
+                  {sunTimes.solarNoon && (
+                    <Stat label="Solar Noon (UTC)" value={formatUtc(sunTimes.solarNoon)} />
+                  )}
+                </div>
+              )}
+
+              {/* Frequencies */}
+              {freqs.length > 0 && (
+                <div>
+                  <p className="text-xs text-slate-500 uppercase tracking-wider mb-2">Frequencies</p>
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                    {freqs.map((f, i) => (
+                      <div key={i} className="bg-slate-100 dark:bg-slate-950 rounded-lg px-3 py-2">
+                        <p className="text-xs text-slate-400">{f.type}</p>
+                        <p className="font-mono font-semibold text-sm text-slate-800 dark:text-slate-100">
+                          {f.freq || '—'}
+                        </p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Density Altitude Calculator */}
+              <div className="rounded-lg border border-slate-200 dark:border-slate-700 p-4 space-y-3">
+                <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider">
+                  Density Altitude
+                </p>
+                <div className="flex flex-wrap gap-3 items-end">
+                  <div>
+                    <label className="block text-xs text-slate-400 mb-1">Altimeter (in Hg)</label>
+                    <input
+                      className="input w-24 font-mono text-sm"
+                      value={altimInput}
+                      onChange={(e) => setAltimInput(e.target.value)}
+                      placeholder="29.92"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs text-slate-400 mb-1">OAT (°C)</label>
+                    <input
+                      className="input w-20 font-mono text-sm"
+                      value={oatInput}
+                      onChange={(e) => setOatInput(e.target.value)}
+                      placeholder="15"
+                    />
+                  </div>
+                  {da !== null && (
+                    <div className="flex flex-col">
+                      <span className="text-xs text-slate-400 mb-1">Density Alt</span>
+                      <span className={`font-mono font-bold text-lg ${da > 8000 ? 'text-red-500' : da > 5000 ? 'text-orange-500' : 'text-green-600 dark:text-green-400'}`}>
+                        {da.toLocaleString()} ft
+                      </span>
+                    </div>
+                  )}
+                </div>
+                {da !== null && da > (airport?.elev ?? 0) + 2000 && (
+                  <p className="text-xs text-orange-500">
+                    High DA — expect reduced aircraft performance. Verify POH limitations.
+                  </p>
+                )}
+              </div>
+
+              {/* Alternates */}
+              <div className="rounded-lg border border-slate-200 dark:border-slate-700 p-4 space-y-3">
+                <div className="flex items-center justify-between">
+                  <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider">
+                    Nearby Alternates (50 nm)
+                  </p>
+                  {!alternates && (
+                    <button
+                      onClick={() => loadAlternates(airport.icaoId)}
+                      disabled={altLoading}
+                      className="text-xs text-sky-500 hover:text-sky-600 font-medium"
+                    >
+                      {altLoading ? 'Loading…' : 'Load'}
+                    </button>
+                  )}
+                </div>
+                {alternates && alternates.length === 0 && (
+                  <p className="text-sm text-slate-400">No alternates found within 50 nm.</p>
+                )}
+                {alternates && alternates.length > 0 && (
+                  <div className="space-y-2">
+                    {alternates.map((alt) => (
+                      <div key={alt.icaoId} className="flex flex-col gap-0.5">
+                        <div className="flex items-center gap-2">
+                          <button
+                            onClick={() => doSearch(alt.icaoId)}
+                            className="font-mono font-bold text-sm text-sky-600 dark:text-sky-400 hover:underline"
+                          >
+                            {alt.icaoId}
+                          </button>
+                          <span className="text-xs text-slate-400">{alt.distNm} nm</span>
+                          <span className="text-xs text-slate-500 truncate">{alt.name}</span>
+                        </div>
+                        {alt.metar && (
+                          <p className="font-mono text-xs text-slate-500 dark:text-slate-400 break-all pl-1">
+                            {alt.metar}
+                          </p>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
             </div>
           )}
 

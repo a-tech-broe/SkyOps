@@ -4,6 +4,10 @@ import NavBar from './components/NavBar';
 import WeatherPage from './pages/WeatherPage';
 import NOTAMPage from './pages/NOTAMPage';
 import AirportPage from './pages/AirportPage';
+import WindsAloftPage from './pages/WindsAloftPage';
+import RouteBriefingPage from './pages/RouteBriefingPage';
+import CurrencyPage from './pages/CurrencyPage';
+import DispatchPage from './pages/DispatchPage';
 
 export default function App() {
   const [dark, setDark] = useState(() => {
@@ -26,6 +30,10 @@ export default function App() {
           <Route path="/weather" element={<WeatherPage />} />
           <Route path="/notams" element={<NOTAMPage />} />
           <Route path="/airports" element={<AirportPage />} />
+          <Route path="/winds" element={<WindsAloftPage />} />
+          <Route path="/route" element={<RouteBriefingPage />} />
+          <Route path="/currency" element={<CurrencyPage />} />
+          <Route path="/dispatch" element={<DispatchPage />} />
         </Routes>
       </main>
     </div>

@@ -22,7 +22,10 @@ export const api = {
   airports: {
     info: (icao: string) => get(`/airports/${icao}`),
     charts: (icao: string) => get(`/airports/${icao}/charts`),
+    alternates: (icao: string, radiusNm = 50) =>
+      get(`/airports/${icao}/alternates?radius=${radiusNm}`),
   },
+  winds: (icao: string) => get(`/winds/${icao}`),
   history: {
     get: (type: string) =>
       get<string[]>(`/history?deviceId=${getDeviceId()}&type=${type}`),
