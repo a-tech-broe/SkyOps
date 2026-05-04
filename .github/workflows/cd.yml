@@ -579,74 +579,17 @@ jobs:
           host: ${{ secrets.MONITOR_HOST }}
           username: ec2-user
           key: ${{ secrets.EC2_SSH_KEY }}
-          envs: GRAFANA_ADMIN_PASSWORD,APP_PRIVATE_IP
+          envs: GRAFANA_ADMIN_PASSWORD,APP_PRIVATE_IP,APP_DOMAIN
           script: |
             set -e
             sudo mkdir -p /opt/monit
             sudo cp -r /home/ec2-user/monit/. /opt/monit/
+            # .env is read by Docker Compose; placeholders are substituted by the prometheus entrypoint
             sudo tee /opt/monit/.env > /dev/null <<EOF
             GRAFANA_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD}
+            APP_EC2_IP=${APP_PRIVATE_IP}
+            APP_DOMAIN=${APP_DOMAIN}
             EOF
-            # Write prometheus.yml with actual app EC2 IP and domain injected
-            sudo tee /opt/monit/prometheus/prometheus.yml > /dev/null <<'PROM'
-            global:
-              scrape_interval: 15s
-              evaluation_interval: 15s
-              external_labels:
-                app: skyops
-                env: production
-            alerting:
-              alertmanagers:
-                - static_configs:
-                    - targets: [alertmanager:9093]
-            rule_files:
-              - /etc/prometheus/alerts/*.yml
-            scrape_configs:
-              - job_name: skyops-backend
-                metrics_path: /metrics
-                static_configs:
-                  - targets: [APP_EC2_IP:3001]
-                    labels:
-                      instance: skyops-app
-              - job_name: node-exporter
-                static_configs:
-                  - targets: [APP_EC2_IP:9100]
-                    labels:
-                      instance: skyops-app
-              - job_name: cadvisor
-                metrics_path: /metrics
-                static_configs:
-                  - targets: [APP_EC2_IP:8082]
-                    labels:
-                      instance: skyops-app
-                metric_relabel_configs:
-                  - source_labels: [container_label_com_docker_compose_service]
-                    target_label: service
-                  - regex: container_label_.+
-                    action: labeldrop
-              - job_name: prometheus
-                metrics_path: /metrics
-                static_configs:
-                  - targets: [localhost:9090]
-              - job_name: blackbox-http
-                metrics_path: /probe
-                params:
-                  module: [http_2xx]
-                static_configs:
-                  - targets:
-                      - https://APP_DOMAIN/health
-                      - https://APP_DOMAIN
-                relabel_configs:
-                  - source_labels: [__address__]
-                    target_label: __param_target
-                  - source_labels: [__param_target]
-                    target_label: instance
-                  - target_label: __address__
-                    replacement: blackbox:9115
-            PROM
-            # Replace placeholders — APP_PRIVATE_IP is passed as an env var via envs:, resolved on remote host
-            sudo sed -i "s/APP_EC2_IP/${APP_PRIVATE_IP}/g"           /opt/monit/prometheus/prometheus.yml
-            sudo sed -i "s/APP_DOMAIN/${{ secrets.APP_DOMAIN }}/g"   /opt/monit/prometheus/prometheus.yml
             # Install Docker if missing
             if ! command -v docker &>/dev/null; then
               sudo dnf install -y docker && sudo systemctl enable --now docker
@@ -668,6 +611,7 @@ jobs:
         env:
           GRAFANA_ADMIN_PASSWORD: ${{ secrets.GRAFANA_ADMIN_PASSWORD }}
           APP_PRIVATE_IP:         ${{ needs.infra-apply.outputs.app_private_ip }}
+          APP_DOMAIN:             ${{ secrets.APP_DOMAIN }}
 
   # ── 8. Production smoke test ──────────────────────────────────────
   smoke-prod:
