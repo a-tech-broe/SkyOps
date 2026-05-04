@@ -28,8 +28,8 @@ export default function RouteBriefingPage() {
 
   async function runBriefing() {
     const stops: { icao: string; role: 'DEP' | 'DEST' | 'ALT' }[] = [
-      { icao: dep.trim().toUpperCase(), role: 'DEP' },
-      { icao: dest.trim().toUpperCase(), role: 'DEST' },
+      { icao: dep.trim().toUpperCase(), role: 'DEP' as const },
+      { icao: dest.trim().toUpperCase(), role: 'DEST' as const },
       ...(alt.trim() ? [{ icao: alt.trim().toUpperCase(), role: 'ALT' as const }] : []),
     ].filter((s) => /^[A-Z]{4}$/.test(s.icao));
 

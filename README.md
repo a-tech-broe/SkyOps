@@ -475,7 +475,7 @@ Alerts are defined in `monit/prometheus/alerts/` and routed through Alertmanager
 ### Backend API Endpoints
 
 | Method | Path | Description |
-|---|---|---|
+| --- | --- | --- |
 | `GET` | `/api/weather/metar/:icao` | METAR JSON |
 | `GET` | `/api/weather/taf/:icao` | TAF JSON |
 | `GET` | `/api/weather/pireps/:icao` | PIREPs within 100 SM |
