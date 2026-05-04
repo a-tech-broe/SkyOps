@@ -1,0 +1,468 @@
+name: AWS Cleanup — Destroy SkyOps Resources
+
+# Manually triggered from any branch.
+# Resources tagged do_not_delete=true are always skipped.
+# Dry run is on by default — you must explicitly set dry_run=false to delete anything.
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: "Type DESTROY to confirm. Resources tagged do_not_delete=true are always skipped."
+        required: true
+        type: string
+      dry_run:
+        description: "Dry run — list what would be deleted without deleting (default: true)"
+        type: boolean
+        default: true
+      region:
+        description: "AWS region"
+        type: string
+        default: "us-east-1"
+      clean_tf_state:
+        description: "Also wipe the Terraform state file from S3 + DynamoDB lock after cleanup"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: aws-cleanup
+  cancel-in-progress: false
+
+jobs:
+  cleanup:
+    name: Destroy SkyOps AWS Resources
+    runs-on: ubuntu-latest
+    env:
+      AWS_ACCESS_KEY_ID:     ${{ secrets.AWS_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+      AWS_DEFAULT_REGION:    ${{ inputs.region || 'us-east-1' }}
+      DRY_RUN:               ${{ inputs.dry_run }}
+
+    steps:
+      # ── Guard ───────────────────────────────────────────────────────
+      - name: Validate confirmation
+        run: |
+          if [ "${{ inputs.confirm }}" != "DESTROY" ]; then
+            echo "::error::Confirmation must be exactly 'DESTROY'. Got: ${{ inputs.confirm }}"
+            exit 1
+          fi
+          echo "Confirmation accepted."
+          echo "Region   : $AWS_DEFAULT_REGION"
+          echo "Dry run  : $DRY_RUN"
+          echo "Clean TF : ${{ inputs.clean_tf_state }}"
+          echo "Actor    : ${{ github.actor }}  Branch: ${{ github.ref_name }}"
+
+      # ── Bootstrap — account ID + protected-ARN set ─────────────────
+      - name: Resolve account + build protected-ARN list
+        run: |
+          ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+          echo "ACCOUNT_ID=$ACCOUNT_ID" >> "$GITHUB_ENV"
+          echo "AWS account: $ACCOUNT_ID"
+
+          echo "::group::Resources tagged do_not_delete=true (will not be deleted)"
+          aws resourcegroupstaggingapi get-resources \
+            --tag-filters "Key=do_not_delete,Values=true" \
+            --query "ResourceTagMappingList[].ResourceARN" \
+            --output text 2>/dev/null \
+          | tr '\t' '\n' | sort -u \
+          | tee /tmp/protected_arns.txt || true
+          echo "::endgroup::"
+
+          COUNT=$(grep -c . /tmp/protected_arns.txt 2>/dev/null || echo 0)
+          echo "$COUNT protected resource(s) found."
+
+          if [ "$DRY_RUN" = "true" ]; then
+            echo "::notice::DRY RUN — nothing will be deleted. Set dry_run=false to apply."
+          else
+            echo "::warning::LIVE RUN — resources WILL be permanently deleted (protected ones skipped)."
+          fi
+
+      # ── Phase 1: Route53 records ────────────────────────────────────
+      - name: "Phase 1 — Route53 DNS records"
+        run: |
+          ZONE="${{ secrets.HOSTED_ZONE_ID }}"
+          DOMAIN="${{ secrets.APP_DOMAIN }}"
+
+          if [ -z "$ZONE" ] || [ -z "$DOMAIN" ]; then
+            echo "HOSTED_ZONE_ID or APP_DOMAIN not set — skipping Route53 cleanup."
+            exit 0
+          fi
+
+          ZONE_ARN="arn:aws:route53:::hostedzone/${ZONE}"
+          if grep -qF "$ZONE_ARN" /tmp/protected_arns.txt 2>/dev/null; then
+            echo "SKIP — hosted zone $ZONE is tagged do_not_delete=true"
+            exit 0
+          fi
+
+          delete_r53_record() {
+            local name="$1"
+            local set
+            set=$(aws route53 list-resource-record-sets \
+              --hosted-zone-id "$ZONE" \
+              --query "ResourceRecordSets[?Name=='${name}.']" \
+              --output json 2>/dev/null)
+            local count
+            count=$(echo "$set" | jq 'length')
+            [ "$count" = "0" ] && echo "No Route53 record found for $name" && return 0
+            local batch
+            batch=$(echo "$set" | jq '{Changes:[.[] | {Action:"DELETE",ResourceRecordSet:.}]}')
+            if [ "$DRY_RUN" = "true" ]; then
+              echo "[DRY RUN] Would delete Route53 record: $name"
+            else
+              aws route53 change-resource-record-sets \
+                --hosted-zone-id "$ZONE" --change-batch "$batch" \
+                && echo "Deleted Route53 record: $name" \
+                || echo "WARNING: failed to delete $name"
+            fi
+          }
+
+          delete_r53_record "$DOMAIN"
+          delete_r53_record "www.$DOMAIN"
+
+          # ACM DNS-validation CNAMEs
+          CERT_ARN=$(aws acm list-certificates \
+            --query "CertificateSummaryList[?DomainName=='$DOMAIN'].CertificateArn" \
+            --output text 2>/dev/null || true)
+          if [ -n "$CERT_ARN" ] && [ "$CERT_ARN" != "None" ]; then
+            aws acm describe-certificate --certificate-arn "$CERT_ARN" \
+              --query "Certificate.DomainValidationOptions[].ResourceRecord" \
+              --output json 2>/dev/null \
+            | jq -c '.[] | select(.Name != null)' | while read -r rec; do
+              NAME=$(echo "$rec" | jq -r '.Name')
+              VALUE=$(echo "$rec" | jq -r '.Value')
+              TYPE=$(echo "$rec" | jq -r '.Type')
+              BATCH=$(jq -n --arg n "$NAME" --arg v "$VALUE" --arg t "$TYPE" \
+                '{Changes:[{Action:"DELETE",ResourceRecordSet:{Name:$n,Type:$t,TTL:60,ResourceRecords:[{Value:$v}]}}]}')
+              if [ "$DRY_RUN" = "true" ]; then
+                echo "[DRY RUN] Would delete ACM validation CNAME: $NAME"
+              else
+                aws route53 change-resource-record-sets \
+                  --hosted-zone-id "$ZONE" --change-batch "$BATCH" 2>/dev/null \
+                  && echo "Deleted ACM validation CNAME: $NAME" \
+                  || echo "CNAME $NAME not found or already gone"
+              fi
+            done
+          fi
+
+      # ── Phase 2: ALB (rules → listeners → ALB → target groups) ─────
+      - name: "Phase 2 — ALB (rules → listeners → ALB → target groups)"
+        run: |
+          protected() { grep -qF "$1" /tmp/protected_arns.txt 2>/dev/null; }
+
+          ALB_ARN=$(aws elbv2 describe-load-balancers --names skyops-alb \
+            --query "LoadBalancers[0].LoadBalancerArn" --output text 2>/dev/null || true)
+
+          if [ -z "$ALB_ARN" ] || [ "$ALB_ARN" = "None" ]; then
+            echo "ALB skyops-alb not found."
+          elif protected "$ALB_ARN"; then
+            echo "SKIP — ALB $ALB_ARN tagged do_not_delete=true"
+          else
+            echo "Found ALB: $ALB_ARN"
+
+            for LISTENER_ARN in $(aws elbv2 describe-listeners \
+              --load-balancer-arn "$ALB_ARN" \
+              --query "Listeners[].ListenerArn" --output text 2>/dev/null); do
+
+              for RULE_ARN in $(aws elbv2 describe-rules \
+                --listener-arn "$LISTENER_ARN" \
+                --query "Rules[?!IsDefault].RuleArn" \
+                --output text 2>/dev/null); do
+                if [ "$DRY_RUN" = "true" ]; then
+                  echo "[DRY RUN] Would delete listener rule: $RULE_ARN"
+                else
+                  aws elbv2 delete-rule --rule-arn "$RULE_ARN" \
+                    && echo "Deleted rule $RULE_ARN"
+                fi
+              done
+
+              if [ "$DRY_RUN" = "true" ]; then
+                echo "[DRY RUN] Would delete listener: $LISTENER_ARN"
+              else
+                aws elbv2 delete-listener --listener-arn "$LISTENER_ARN" \
+                  && echo "Deleted listener $LISTENER_ARN"
+              fi
+            done
+
+            if [ "$DRY_RUN" = "true" ]; then
+              echo "[DRY RUN] Would delete ALB skyops-alb"
+            else
+              aws elbv2 delete-load-balancer --load-balancer-arn "$ALB_ARN"
+              echo "Waiting for ALB deletion..."
+              aws elbv2 wait load-balancers-deleted --load-balancer-arns "$ALB_ARN"
+              echo "ALB deleted."
+            fi
+          fi
+
+          # Target groups (only deletable once no ALB references them)
+          for TG_NAME in skyops-web-tg skyops-api-tg; do
+            TG_ARN=$(aws elbv2 describe-target-groups --names "$TG_NAME" \
+              --query "TargetGroups[0].TargetGroupArn" --output text 2>/dev/null || true)
+            [ -z "$TG_ARN" ] || [ "$TG_ARN" = "None" ] && \
+              echo "Target group $TG_NAME not found." && continue
+
+            if protected "$TG_ARN"; then
+              echo "SKIP — target group $TG_NAME tagged do_not_delete=true"
+            elif [ "$DRY_RUN" = "true" ]; then
+              echo "[DRY RUN] Would delete target group: $TG_NAME ($TG_ARN)"
+            else
+              aws elbv2 delete-target-group --target-group-arn "$TG_ARN" \
+                && echo "Deleted target group $TG_NAME"
+            fi
+          done
+
+      # ── Phase 3: EC2 instances ──────────────────────────────────────
+      - name: "Phase 3 — EC2 instances (terminate + wait)"
+        run: |
+          TERMINATE_IDS=""
+
+          for INST_NAME in skyops-app skyops-monitoring; do
+            INST_ID=$(aws ec2 describe-instances \
+              --filters \
+                "Name=tag:Name,Values=$INST_NAME" \
+                "Name=instance-state-name,Values=running,stopped,stopping,pending" \
+              --query "Reservations[0].Instances[0].InstanceId" \
+              --output text 2>/dev/null || true)
+            [ -z "$INST_ID" ] || [ "$INST_ID" = "None" ] && \
+              echo "No active instance $INST_NAME found." && continue
+
+            # Check do_not_delete tag directly on the instance
+            TAG=$(aws ec2 describe-tags \
+              --filters \
+                "Name=resource-id,Values=$INST_ID" \
+                "Name=key,Values=do_not_delete" \
+                "Name=value,Values=true" \
+              --query "Tags[0].Value" --output text 2>/dev/null || true)
+            if [ "$TAG" = "true" ] || grep -qF "$INST_ID" /tmp/protected_arns.txt 2>/dev/null; then
+              echo "SKIP — $INST_NAME ($INST_ID) tagged do_not_delete=true"
+              continue
+            fi
+
+            if [ "$DRY_RUN" = "true" ]; then
+              echo "[DRY RUN] Would terminate EC2 $INST_NAME ($INST_ID)"
+            else
+              aws ec2 terminate-instances --instance-ids "$INST_ID"
+              echo "Terminating $INST_NAME ($INST_ID)..."
+              TERMINATE_IDS="$TERMINATE_IDS $INST_ID"
+            fi
+          done
+
+          if [ "$DRY_RUN" = "false" ] && [ -n "$TERMINATE_IDS" ]; then
+            echo "Waiting for instances to terminate: $TERMINATE_IDS"
+            aws ec2 wait instance-terminated --instance-ids $TERMINATE_IDS
+            echo "All instances terminated. EIP associations released automatically."
+          fi
+
+      # ── Phase 4: Security groups ────────────────────────────────────
+      - name: "Phase 4 — Security groups"
+        run: |
+          for SG_NAME in skyops-sg skyops-monitoring-sg skyops-alb-sg; do
+            SG_ID=$(aws ec2 describe-security-groups \
+              --filters "Name=group-name,Values=$SG_NAME" \
+              --query "SecurityGroups[0].GroupId" \
+              --output text 2>/dev/null || true)
+            [ -z "$SG_ID" ] || [ "$SG_ID" = "None" ] && \
+              echo "Security group $SG_NAME not found." && continue
+
+            TAG=$(aws ec2 describe-tags \
+              --filters \
+                "Name=resource-id,Values=$SG_ID" \
+                "Name=key,Values=do_not_delete" \
+                "Name=value,Values=true" \
+              --query "Tags[0].Value" --output text 2>/dev/null || true)
+            if [ "$TAG" = "true" ] || grep -qF "$SG_ID" /tmp/protected_arns.txt 2>/dev/null; then
+              echo "SKIP — security group $SG_NAME ($SG_ID) tagged do_not_delete=true"
+              continue
+            fi
+
+            if [ "$DRY_RUN" = "true" ]; then
+              echo "[DRY RUN] Would delete security group: $SG_NAME ($SG_ID)"
+            else
+              # Revoke cross-SG ingress rules first (prevents "DependencyViolation")
+              CROSS_SG_RULES=$(aws ec2 describe-security-groups \
+                --group-ids "$SG_ID" \
+                --query 'SecurityGroups[0].IpPermissions[?length(UserIdGroupPairs)>`0`]' \
+                --output json 2>/dev/null)
+              if [ "$CROSS_SG_RULES" != "null" ] && [ "$CROSS_SG_RULES" != "[]" ]; then
+                aws ec2 revoke-security-group-ingress \
+                  --group-id "$SG_ID" \
+                  --ip-permissions "$CROSS_SG_RULES" 2>/dev/null \
+                  && echo "Revoked cross-SG ingress rules on $SG_NAME" || true
+              fi
+              aws ec2 delete-security-group --group-id "$SG_ID" \
+                && echo "Deleted security group $SG_NAME ($SG_ID)" \
+                || echo "WARNING: could not delete $SG_NAME — may still have dependencies"
+            fi
+          done
+
+      # ── Phase 5: Internet gateway ───────────────────────────────────
+      - name: "Phase 5 — Internet gateway + default route"
+        run: |
+          IGW_ID=$(aws ec2 describe-internet-gateways \
+            --filters "Name=tag:Name,Values=skyops-igw" \
+            --query "InternetGateways[0].InternetGatewayId" \
+            --output text 2>/dev/null || true)
+          [ -z "$IGW_ID" ] || [ "$IGW_ID" = "None" ] && \
+            echo "IGW skyops-igw not found." && exit 0
+
+          TAG=$(aws ec2 describe-tags \
+            --filters \
+              "Name=resource-id,Values=$IGW_ID" \
+              "Name=key,Values=do_not_delete" \
+              "Name=value,Values=true" \
+            --query "Tags[0].Value" --output text 2>/dev/null || true)
+          if [ "$TAG" = "true" ] || grep -qF "$IGW_ID" /tmp/protected_arns.txt 2>/dev/null; then
+            echo "SKIP — IGW $IGW_ID tagged do_not_delete=true"
+            exit 0
+          fi
+
+          VPC_ID=$(aws ec2 describe-internet-gateways \
+            --internet-gateway-ids "$IGW_ID" \
+            --query "InternetGateways[0].Attachments[0].VpcId" \
+            --output text 2>/dev/null || true)
+
+          if [ "$DRY_RUN" = "true" ]; then
+            echo "[DRY RUN] Would delete default route, detach, and delete IGW $IGW_ID (VPC: $VPC_ID)"
+          else
+            # Remove the default route before detaching
+            RTB_ID=$(aws ec2 describe-route-tables \
+              --filters \
+                "Name=vpc-id,Values=$VPC_ID" \
+                "Name=association.main,Values=true" \
+              --query "RouteTables[0].RouteTableId" --output text 2>/dev/null || true)
+            if [ -n "$RTB_ID" ] && [ "$RTB_ID" != "None" ]; then
+              aws ec2 delete-route \
+                --route-table-id "$RTB_ID" \
+                --destination-cidr-block "0.0.0.0/0" 2>/dev/null \
+                && echo "Deleted default route from $RTB_ID" || true
+            fi
+
+            if [ -n "$VPC_ID" ] && [ "$VPC_ID" != "None" ]; then
+              aws ec2 detach-internet-gateway \
+                --internet-gateway-id "$IGW_ID" --vpc-id "$VPC_ID" \
+                && echo "Detached IGW from VPC $VPC_ID"
+            fi
+
+            aws ec2 delete-internet-gateway --internet-gateway-id "$IGW_ID" \
+              && echo "Deleted IGW $IGW_ID" || echo "WARNING: IGW deletion failed"
+          fi
+
+      # ── Phase 6: ACM certificate ────────────────────────────────────
+      - name: "Phase 6 — ACM certificate"
+        run: |
+          DOMAIN="${{ secrets.APP_DOMAIN }}"
+          [ -z "$DOMAIN" ] && echo "APP_DOMAIN not set — skipping." && exit 0
+
+          CERT_ARN=$(aws acm list-certificates \
+            --query "CertificateSummaryList[?DomainName=='$DOMAIN'].CertificateArn" \
+            --output text 2>/dev/null || true)
+          [ -z "$CERT_ARN" ] || [ "$CERT_ARN" = "None" ] && \
+            echo "No certificate found for $DOMAIN." && exit 0
+
+          if grep -qF "$CERT_ARN" /tmp/protected_arns.txt 2>/dev/null; then
+            echo "SKIP — certificate $CERT_ARN tagged do_not_delete=true"
+            exit 0
+          fi
+
+          if [ "$DRY_RUN" = "true" ]; then
+            echo "[DRY RUN] Would delete ACM certificate: $CERT_ARN ($DOMAIN)"
+          else
+            aws acm delete-certificate --certificate-arn "$CERT_ARN" \
+              && echo "Deleted ACM certificate for $DOMAIN" \
+              || echo "WARNING: certificate deletion failed (may still be in use by ALB)"
+          fi
+
+      # ── Phase 7: IAM (policy → instance profile → role) ─────────────
+      - name: "Phase 7 — IAM (inline policy → instance profile → role)"
+        run: |
+          ROLE_NAME="skyops-ec2-role"
+          ROLE_ARN=$(aws iam get-role --role-name "$ROLE_NAME" \
+            --query "Role.Arn" --output text 2>/dev/null || true)
+          [ -z "$ROLE_ARN" ] || [ "$ROLE_ARN" = "None" ] && \
+            echo "IAM role $ROLE_NAME not found." && exit 0
+
+          if grep -qF "$ROLE_ARN" /tmp/protected_arns.txt 2>/dev/null; then
+            echo "SKIP — IAM role $ROLE_ARN tagged do_not_delete=true"
+            exit 0
+          fi
+
+          if [ "$DRY_RUN" = "true" ]; then
+            echo "[DRY RUN] Would delete: inline policy skyops-ssm-read, instance profile skyops-ec2-profile, role $ROLE_NAME"
+          else
+            aws iam delete-role-policy \
+              --role-name "$ROLE_NAME" \
+              --policy-name "skyops-ssm-read" 2>/dev/null \
+              && echo "Deleted inline policy skyops-ssm-read" \
+              || echo "Inline policy not found or already deleted"
+
+            aws iam remove-role-from-instance-profile \
+              --instance-profile-name "skyops-ec2-profile" \
+              --role-name "$ROLE_NAME" 2>/dev/null \
+              && echo "Removed role from instance profile" || true
+
+            aws iam delete-instance-profile \
+              --instance-profile-name "skyops-ec2-profile" 2>/dev/null \
+              && echo "Deleted instance profile skyops-ec2-profile" \
+              || echo "Instance profile not found or already deleted"
+
+            aws iam delete-role --role-name "$ROLE_NAME" \
+              && echo "Deleted IAM role $ROLE_NAME" \
+              || echo "WARNING: IAM role deletion failed"
+          fi
+
+      # ── Phase 8 (optional): Terraform state ─────────────────────────
+      - name: "Phase 8 — Terraform S3 state + DynamoDB lock (optional)"
+        if: ${{ inputs.clean_tf_state == true || inputs.clean_tf_state == 'true' }}
+        run: |
+          BUCKET="${{ secrets.TF_BACKEND_BUCKET }}"
+          TABLE="${{ secrets.TF_BACKEND_DYNAMO_TABLE }}"
+
+          if [ -z "$BUCKET" ]; then
+            echo "TF_BACKEND_BUCKET secret not set — skipping state cleanup."
+            exit 0
+          fi
+
+          if [ "$DRY_RUN" = "true" ]; then
+            echo "[DRY RUN] Would delete: s3://$BUCKET/ec2/terraform.tfstate"
+            [ -n "$TABLE" ] && echo "[DRY RUN] Would delete DynamoDB lock entry in: $TABLE"
+          else
+            aws s3 rm "s3://$BUCKET/ec2/terraform.tfstate" \
+              && echo "Deleted Terraform state from s3://$BUCKET/ec2/terraform.tfstate" \
+              || echo "State file not found or already deleted"
+
+            if [ -n "$TABLE" ]; then
+              aws dynamodb delete-item \
+                --table-name "$TABLE" \
+                --key '{"LockID":{"S":"ec2/terraform.tfstate"}}' 2>/dev/null \
+                && echo "Deleted DynamoDB lock entry from $TABLE" \
+                || echo "Lock entry not found or already deleted"
+            fi
+          fi
+
+      # ── Summary ──────────────────────────────────────────────────────
+      - name: Summary
+        if: always()
+        run: |
+          if [ "$DRY_RUN" = "true" ]; then
+            MODE="Dry run — nothing deleted"
+          else
+            MODE="Live — resources deleted"
+          fi
+
+          cat >> "$GITHUB_STEP_SUMMARY" <<EOF
+          ## AWS Cleanup Summary
+
+          | | |
+          | --- | --- |
+          | Mode | $MODE |
+          | Region | \`$AWS_DEFAULT_REGION\` |
+          | TF state wiped | ${{ inputs.clean_tf_state }} |
+          | Triggered by | \`${{ github.actor }}\` on \`${{ github.ref_name }}\` |
+
+          **Resources always skipped:** Elastic IPs (pre-allocated, managed outside Terraform).
+          **Other skips:** any resource tagged \`do_not_delete=true\`.
+
+          To re-provision, run the CD workflow from \`main\`.
+          EOF
