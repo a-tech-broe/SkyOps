@@ -58,6 +58,7 @@ services:
   loki:
     image: grafana/loki:2.9.6
     restart: unless-stopped
+    user: "0"
     ports:
       - "3100:3100"
     volumes:
