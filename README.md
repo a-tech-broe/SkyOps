@@ -294,10 +294,10 @@ Runs all security gates, then:
 | Job | What happens |
 |---|---|
 | Build & push | Multi-arch (`amd64` + `arm64`) → DockerHub + Trivy scan + Cosign sign + SBOM |
-| Infra apply | `terraform apply` — provisions EC2 × 2, ALB, ACM, SGs; enforces scrape ingress rules |
+| Infra apply | `terraform apply` — provisions EC2 × 2, ALB, ACM, SGs; outputs private IPs for both instances |
 | Deploy | SSH → app EC2 — writes `.env` + `docker-compose.prod.yml` → `docker compose up` |
-| Deploy exporters | SSH → app EC2 — starts node-exporter, cAdvisor, Promtail (ships logs to Loki) |
-| Deploy monitoring | SSH → monitoring EC2 — injects app EC2 IP into prometheus.yml, starts full stack |
+| Deploy exporters | SSH → app EC2 — writes `.env` with Loki private IP; starts node-exporter, cAdvisor, Promtail |
+| Deploy monitoring | SSH → monitoring EC2 — writes `.env` with app EC2 private IP + domain; starts full stack |
 | Production smoke test | HTTPS `curl` against `APP_DOMAIN`: `/health`, web HTML, weather and airport endpoints |
 | Summary | Release digest table + `cosign verify` instructions |
 
@@ -343,16 +343,16 @@ Application Load Balancer  (HTTPS :443 — TLS terminated)
 
 App EC2  (m5.xlarge)                    Monitoring EC2  (m5.xlarge)
 ├── web          :80                    ├── Prometheus      :9090
-├── backend      :3001  ◄── scrape ─────┤
-├── node-exporter:9100  ◄── scrape ─────┤
-├── cAdvisor     :8082  ◄── scrape ─────┤
-└── Promtail ────── push logs ─────────►├── Loki            :3100
+├── backend      :3001  ◄─ private IP ──┤   (scrapes via VPC private IPs)
+├── node-exporter:9100  ◄─ private IP ──┤
+├── cAdvisor     :8082  ◄─ private IP ──┤
+└── Promtail ──── push (private IP) ───►├── Loki            :3100
                                         ├── Grafana         :3000
                                         ├── Alertmanager    :9093
                                         └── Blackbox        (internal)
 ```
 
-Security groups are locked down: scrape ports (3001, 9100, 8082) on the app EC2 accept traffic **only from the monitoring security group**. Grafana, Prometheus, and Alertmanager on the monitoring EC2 are restricted to `allowed_ssh_cidr`.
+Security groups are locked down: scrape ports (3001, 9100, 8082) on the app EC2 accept traffic **only from the monitoring security group**. Loki (port 3100) on the monitoring EC2 accepts traffic from the VPC CIDR only — Promtail connects via the monitoring EC2's **private IP**. Prometheus scrapes the app EC2 via its **private IP** as well. Grafana, Prometheus, and Alertmanager are restricted to `allowed_ssh_cidr`.
 
 ### What gets provisioned
 
@@ -409,8 +409,9 @@ The app EC2 runs lightweight exporters; a dedicated monitoring EC2 runs the full
 | Service | URL | Auth |
 |---|---|---|
 | Grafana | `http://<MONITOR_HOST>:3000` | `admin` / `GRAFANA_ADMIN_PASSWORD` |
-| Prometheus | `http://<MONITOR_HOST>:9090` | None (restricted by SG) |
-| Alertmanager | `http://<MONITOR_HOST>:9093` | None (restricted by SG) |
+| Prometheus | `http://<MONITOR_HOST>:9090` | None (restricted by SG to `allowed_ssh_cidr`) |
+| Alertmanager | `http://<MONITOR_HOST>:9093` | None (restricted by SG to `allowed_ssh_cidr`) |
+| Loki | VPC-internal only — not exposed publicly | Accessible via Grafana datasource |
 
 ### What's collected
 
@@ -420,7 +421,7 @@ The app EC2 runs lightweight exporters; a dedicated monitoring EC2 runs the full
 | node-exporter | App EC2 :9100 | CPU, memory, disk, network, system load |
 | cAdvisor | App EC2 :8082 | Per-container CPU, memory, restarts |
 | Blackbox Exporter | Monitoring EC2 | External uptime probes (`/health`, web) |
-| Promtail → Loki | App EC2 → Monitoring EC2 | All container logs + system logs (30-day retention) |
+| Promtail → Loki | App EC2 → Monitoring EC2 (private IP) | All container logs + system logs (30-day retention) |
 
 ### Querying logs in Grafana
 
