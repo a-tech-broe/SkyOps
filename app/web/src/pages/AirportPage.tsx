@@ -142,6 +142,29 @@ const CODE_LABELS: Record<string, string> = {
   HOT: 'Airport Hot Spots',
 };
 
+interface ApproachKind {
+  label: string;
+  priority: number;
+  color: string;
+}
+
+function classifyApproach(name: string): ApproachKind {
+  const n = name.toUpperCase();
+  if (n.includes('ILS') && !n.includes('LOC ONLY'))
+    return { label: 'ILS', priority: 0, color: 'bg-green-100 dark:bg-green-900 text-green-700 dark:text-green-300' };
+  if (n.includes('(RNP)') || n.includes('RNP AR'))
+    return { label: 'RNP AR', priority: 1, color: 'bg-indigo-100 dark:bg-indigo-900 text-indigo-700 dark:text-indigo-300' };
+  if (n.includes('RNAV') || n.includes('GPS'))
+    return { label: 'RNAV', priority: 2, color: 'bg-sky-100 dark:bg-sky-900 text-sky-700 dark:text-sky-300' };
+  if (n.includes('VOR'))
+    return { label: 'VOR', priority: 3, color: 'bg-orange-100 dark:bg-orange-900 text-orange-700 dark:text-orange-300' };
+  if (n.includes('LOC'))
+    return { label: 'LOC', priority: 4, color: 'bg-yellow-100 dark:bg-yellow-900 text-yellow-700 dark:text-yellow-300' };
+  if (n.includes('NDB'))
+    return { label: 'NDB', priority: 5, color: 'bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-300' };
+  return { label: 'IAP', priority: 6, color: 'bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-300' };
+}
+
 export default function AirportPage() {
   const [icao, setIcao] = useState('');
   const [airport, setAirport] = useState<AirportData | null>(null);
@@ -223,6 +246,24 @@ export default function AirportPage() {
     : 0;
 
   const hasApproaches = charts && !charts.international && charts.charts.some((c) => c.code === 'IAP');
+
+  // Build "approaches in use" for the active runway(s).
+  // Calm wind (<3 kt) or no wind → top 2 runway ends; otherwise top 1 (best headwind).
+  const calm = !wind || wind.speed < 3;
+  const endsToShow = calm ? rankedEnds.slice(0, 2) : rankedEnds.slice(0, 1);
+  type AnnotatedChart = Chart & ApproachKind;
+  interface ActiveRunway { rwyId: string; heading: number; approaches: AnnotatedChart[] }
+  const approachesInUse: ActiveRunway[] = hasApproaches
+    ? endsToShow
+        .map((rwy) => ({
+          rwyId: rwy.id,
+          heading: rwy.heading,
+          approaches: getApproachesForRunway(charts!.charts, rwy.id)
+            .map((c) => ({ ...c, ...classifyApproach(c.name) }))
+            .sort((a, b) => a.priority - b.priority),
+        }))
+        .filter((r) => r.approaches.length > 0)
+    : [];
 
   return (
     <div className="space-y-6">
@@ -369,6 +410,73 @@ export default function AirportPage() {
                     at{' '}
                     <span className="font-mono font-semibold">{wind.speed} kt</span>
                   </span>
+                </div>
+              )}
+
+              {/* Approaches in Use */}
+              {approachesInUse.length > 0 && (
+                <div className="rounded-lg border border-slate-200 dark:border-slate-700 overflow-hidden">
+                  <div className="flex items-center justify-between px-4 py-2.5 bg-slate-50 dark:bg-slate-800/80 border-b border-slate-200 dark:border-slate-700">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                      Approaches in Use
+                    </p>
+                    <span className="text-xs text-slate-400">
+                      {wind && !calm
+                        ? `Wind ${String(wind.dir).padStart(3, '0')}° @ ${wind.speed} kt → RWY ${approachesInUse[0]?.rwyId}`
+                        : 'Calm / no wind — showing top runways'}
+                    </span>
+                  </div>
+
+                  {approachesInUse.map(({ rwyId, heading, approaches }) => (
+                    <div key={rwyId}>
+                      {approachesInUse.length > 1 && (
+                        <div className="px-4 py-1.5 bg-slate-100 dark:bg-slate-900 border-b border-slate-200 dark:border-slate-700">
+                          <span className="font-mono font-bold text-sm text-slate-700 dark:text-slate-200">
+                            RWY {rwyId}
+                          </span>
+                          <span className="text-xs text-slate-400 ml-2 font-mono">
+                            HDG {String(heading).padStart(3, '0')}°
+                          </span>
+                        </div>
+                      )}
+                      <div className="divide-y divide-slate-100 dark:divide-slate-800">
+                        {approaches.map((chart) => (
+                          <a
+                            key={chart.pdfUrl}
+                            href={chart.pdfUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="flex items-center gap-3 px-4 py-2.5 bg-white dark:bg-slate-950 hover:bg-sky-50 dark:hover:bg-sky-900/20 transition-colors group"
+                          >
+                            <span className={`flex-shrink-0 text-[10px] font-bold px-1.5 py-0.5 rounded ${chart.color}`}>
+                              {chart.label}
+                            </span>
+                            <span className="flex-1 font-mono text-xs text-slate-700 dark:text-slate-300 group-hover:text-sky-600 dark:group-hover:text-sky-400 truncate">
+                              {chart.name}
+                            </span>
+                            <svg
+                              className="w-3.5 h-3.5 flex-shrink-0 text-slate-300 group-hover:text-sky-400"
+                              fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}
+                            >
+                              <path strokeLinecap="round" strokeLinejoin="round" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                            </svg>
+                          </a>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+
+                  <div className="px-4 py-2 bg-slate-50 dark:bg-slate-800/60 border-t border-slate-100 dark:border-slate-700">
+                    <p className="text-[10px] text-slate-400">
+                      FAA d-TPP · AIRAC {charts?.cycle} · Opens PDF in new tab ·{' '}
+                      <button
+                        onClick={() => { setTab('charts'); setHighlightIap(true); }}
+                        className="text-sky-500 hover:text-sky-600 underline"
+                      >
+                        All charts →
+                      </button>
+                    </p>
+                  </div>
                 </div>
               )}
 
