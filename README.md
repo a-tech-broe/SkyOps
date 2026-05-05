@@ -425,6 +425,8 @@ The app EC2 runs lightweight exporters; a dedicated monitoring EC2 runs the full
 
 ### Querying logs in Grafana
 
+The Loki datasource is auto-provisioned in Grafana at `http://loki:3100` — this is Docker's internal DNS name for the Loki container (both run on the `monit` network). The URL is correct as-is; Grafana queries Loki server-side.
+
 Go to **Explore → Loki** and use label selectors:
 
 | Query | What you see |
@@ -434,6 +436,9 @@ Go to **Explore → Loki** and use label selectors:
 | `{service="db"}` | Postgres logs |
 | `{job="system", host="skyops-app"}` | OS-level logs |
 | `{service="backend"} \|= "ERROR"` | Backend errors only |
+| `{container=~".+"}` | All container logs |
+
+The `service` label is sourced from the Docker Compose `com.docker.compose.service` container label via Promtail's Docker SD (`__meta_docker_container_label_com_docker_compose_service`).
 
 ### Pre-built dashboard
 
@@ -447,6 +452,44 @@ The **SkyOps — App & Infra** dashboard auto-provisions in Grafana with panels 
 - Disk usage
 - Per-container CPU and memory
 - Live backend logs (via Loki)
+
+### Debugging the monitoring stack
+
+Check service status and logs on the monitoring EC2:
+
+```bash
+# Are all containers up?
+sudo docker compose -f /opt/monit/docker-compose.yml ps
+
+# Loki startup logs (most likely to fail — see notes below)
+sudo docker compose -f /opt/monit/docker-compose.yml logs loki --tail=40
+
+# Prometheus config after entrypoint sed substitution
+sudo docker compose -f /opt/monit/docker-compose.yml exec prometheus cat /tmp/prometheus.yml
+
+# Verify Loki is ready
+curl -s http://localhost:3100/ready
+
+# Check what log streams Loki has ingested
+curl -s http://localhost:3100/loki/api/v1/labels
+```
+
+Check Promtail on the app EC2:
+
+```bash
+sudo docker compose -f /opt/exporters/docker-compose.yml logs promtail --tail=40
+```
+
+**Known gotchas:**
+
+| Component | Issue | Fix |
+|---|---|---|
+| Loki | Crashes on startup with retention enabled | `compactor.delete_request_store: filesystem` is required in `loki.yml` when `retention_enabled: true` (Loki 2.9.x) |
+| Loki | Volume permission errors | Service runs as `user: "0"` (root) to avoid UID mismatch with named volume |
+| cAdvisor | Fails to start on Amazon Linux 2023 | `devices: /dev/kmsg` removed — device doesn't exist on AL2023 |
+| Prometheus | Targets show as down | Scrapes via **private IP** (not public EIP) — Terraform outputs `app_private_ip` and it's injected via `.env` at deploy time |
+| Promtail | Logs not reaching Loki | Pushes to Loki's **private IP** (port 3100 is VPC-only in the SG); `-config.expand-env=true` required to expand `${LOKI_URL}` |
+| Promtail | `service` label empty in Loki | Docker SD labels use `__meta_docker_container_label_com_docker_compose_service`, not `__meta_docker_compose_service` |
 
 ### Alerts
 
