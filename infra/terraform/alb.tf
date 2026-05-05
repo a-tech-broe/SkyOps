@@ -16,7 +16,7 @@ resource "aws_acm_certificate" "skyops" {
     create_before_destroy = true
   }
 
-  tags = { Name = "skyops-cert" }
+  tags = merge({ Name = "skyops-cert" }, local.protect)
 }
 
 # ── Route53 DNS validation — only created when hosted_zone_id set ─
@@ -72,7 +72,7 @@ resource "aws_security_group" "alb" {
     cidr_blocks = ["0.0.0.0/0"]
   }
 
-  tags = { Name = "skyops-alb-sg" }
+  tags = merge({ Name = "skyops-alb-sg" }, local.protect)
 }
 
 # ── Target Groups ─────────────────────────────────────────────────
@@ -91,7 +91,7 @@ resource "aws_lb_target_group" "web" {
     matcher             = "200"
   }
 
-  tags = { Name = "skyops-web-tg" }
+  tags = merge({ Name = "skyops-web-tg" }, local.protect)
 }
 
 resource "aws_lb_target_group" "backend" {
@@ -109,7 +109,7 @@ resource "aws_lb_target_group" "backend" {
     matcher             = "200"
   }
 
-  tags = { Name = "skyops-api-tg" }
+  tags = merge({ Name = "skyops-api-tg" }, local.protect)
 }
 
 resource "aws_lb_target_group_attachment" "web" {
@@ -149,6 +149,8 @@ resource "aws_lb_listener" "http" {
       status_code = "HTTP_301"
     }
   }
+
+  tags = merge({ Name = "skyops-http-listener" }, local.protect)
 }
 
 # ── HTTPS listener — default to web, /api/* and /health → backend ─
@@ -163,6 +165,8 @@ resource "aws_lb_listener" "https" {
     type             = "forward"
     target_group_arn = aws_lb_target_group.web.arn
   }
+
+  tags = merge({ Name = "skyops-https-listener" }, local.protect)
 }
 
 resource "aws_lb_listener_rule" "api" {
@@ -179,6 +183,8 @@ resource "aws_lb_listener_rule" "api" {
       values = ["/api/*", "/health"]
     }
   }
+
+  tags = merge({ Name = "skyops-api-rule" }, local.protect)
 }
 
 # ── Route53 A records (apex + www) → ALB ─────────────────────────

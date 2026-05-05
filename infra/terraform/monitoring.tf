@@ -51,7 +51,7 @@ resource "aws_security_group" "monitoring" {
     cidr_blocks = ["0.0.0.0/0"]
   }
 
-  tags = { Name = "skyops-monitoring-sg" }
+  tags = merge({ Name = "skyops-monitoring-sg" }, local.protect)
 
   lifecycle {
     prevent_destroy = true

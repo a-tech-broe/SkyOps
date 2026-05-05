@@ -170,7 +170,9 @@ jobs:
                 --listener-arn "$LISTENER_ARN" \
                 --query "Rules[?!IsDefault].RuleArn" \
                 --output text 2>/dev/null); do
-                if [ "$DRY_RUN" = "true" ]; then
+                if protected "$RULE_ARN"; then
+                  echo "SKIP — listener rule $RULE_ARN tagged do_not_delete=true"
+                elif [ "$DRY_RUN" = "true" ]; then
                   echo "[DRY RUN] Would delete listener rule: $RULE_ARN"
                 else
                   aws elbv2 delete-rule --rule-arn "$RULE_ARN" \
@@ -178,7 +180,9 @@ jobs:
                 fi
               done
 
-              if [ "$DRY_RUN" = "true" ]; then
+              if protected "$LISTENER_ARN"; then
+                echo "SKIP — listener $LISTENER_ARN tagged do_not_delete=true"
+              elif [ "$DRY_RUN" = "true" ]; then
                 echo "[DRY RUN] Would delete listener: $LISTENER_ARN"
               else
                 aws elbv2 delete-listener --listener-arn "$LISTENER_ARN" \
@@ -388,8 +392,19 @@ jobs:
             exit 0
           fi
 
+          PROFILE_ARN=$(aws iam get-instance-profile \
+            --instance-profile-name "skyops-ec2-profile" \
+            --query "InstanceProfile.Arn" --output text 2>/dev/null || true)
+          PROFILE_PROTECTED=false
+          if [ -n "$PROFILE_ARN" ] && [ "$PROFILE_ARN" != "None" ] && \
+             grep -qF "$PROFILE_ARN" /tmp/protected_arns.txt 2>/dev/null; then
+            PROFILE_PROTECTED=true
+          fi
+
           if [ "$DRY_RUN" = "true" ]; then
             echo "[DRY RUN] Would delete: inline policy skyops-ssm-read, instance profile skyops-ec2-profile, role $ROLE_NAME"
+            [ "$PROFILE_PROTECTED" = "true" ] && \
+              echo "  NOTE: instance profile $PROFILE_ARN is tagged do_not_delete=true — would be skipped"
           else
             aws iam delete-role-policy \
               --role-name "$ROLE_NAME" \
@@ -397,15 +412,19 @@ jobs:
               && echo "Deleted inline policy skyops-ssm-read" \
               || echo "Inline policy not found or already deleted"
 
-            aws iam remove-role-from-instance-profile \
-              --instance-profile-name "skyops-ec2-profile" \
-              --role-name "$ROLE_NAME" 2>/dev/null \
-              && echo "Removed role from instance profile" || true
+            if [ "$PROFILE_PROTECTED" = "true" ]; then
+              echo "SKIP — instance profile $PROFILE_ARN tagged do_not_delete=true"
+            else
+              aws iam remove-role-from-instance-profile \
+                --instance-profile-name "skyops-ec2-profile" \
+                --role-name "$ROLE_NAME" 2>/dev/null \
+                && echo "Removed role from instance profile" || true
 
-            aws iam delete-instance-profile \
-              --instance-profile-name "skyops-ec2-profile" 2>/dev/null \
-              && echo "Deleted instance profile skyops-ec2-profile" \
-              || echo "Instance profile not found or already deleted"
+              aws iam delete-instance-profile \
+                --instance-profile-name "skyops-ec2-profile" 2>/dev/null \
+                && echo "Deleted instance profile skyops-ec2-profile" \
+                || echo "Instance profile not found or already deleted"
+            fi
 
             aws iam delete-role --role-name "$ROLE_NAME" \
               && echo "Deleted IAM role $ROLE_NAME" \

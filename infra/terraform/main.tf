@@ -5,7 +5,7 @@ data "aws_vpc" "default" {
 
 resource "aws_internet_gateway" "skyops" {
   vpc_id = data.aws_vpc.default.id
-  tags   = { Name = "skyops-igw" }
+  tags   = merge({ Name = "skyops-igw" }, local.protect)
 
   lifecycle {
     prevent_destroy = true
@@ -60,6 +60,8 @@ resource "aws_iam_role" "skyops_ec2" {
     }]
   })
 
+  tags = merge({ Name = "skyops-ec2-role" }, local.protect)
+
   lifecycle {
     prevent_destroy = true
   }
@@ -85,6 +87,8 @@ resource "aws_iam_role_policy" "ssm_read" {
 resource "aws_iam_instance_profile" "skyops_ec2" {
   name = "skyops-ec2-profile"
   role = aws_iam_role.skyops_ec2.name
+
+  tags = merge({ Name = "skyops-ec2-profile" }, local.protect)
 
   lifecycle {
     prevent_destroy = true
@@ -152,7 +156,7 @@ resource "aws_security_group" "skyops" {
     cidr_blocks = ["0.0.0.0/0"]
   }
 
-  tags = { Name = "skyops-sg" }
+  tags = merge({ Name = "skyops-sg" }, local.protect)
 
   lifecycle {
     prevent_destroy = true
