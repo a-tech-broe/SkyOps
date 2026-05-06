@@ -1,6 +1,7 @@
 import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
+import { requestLogger } from './middleware/requestLogger';
 import weatherRouter from './routes/weather';
 import notamsRouter from './routes/notams';
 import airportsRouter from './routes/airports';
@@ -16,6 +17,7 @@ const PORT = process.env.PORT || 3001;
 app.use(helmet());
 app.use(cors());
 app.use(express.json());
+app.use(requestLogger);
 app.use(metricsMiddleware);
 
 app.get('/health', (_, res) => res.json({ status: 'ok', service: 'SkyOps API' }));
