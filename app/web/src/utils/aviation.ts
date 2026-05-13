@@ -4,10 +4,6 @@ export function densityAltitude(elevFt: number, altimInHg: number, oatC: number)
   return Math.round(pressureAlt + 120 * (oatC - isaC));
 }
 
-export function pressureAltitude(elevFt: number, altimInHg: number): number {
-  return Math.round(elevFt + (29.92 - altimInHg) * 1000);
-}
-
 export interface FreqEntry {
   type: string;
   freq: string;
@@ -27,26 +23,6 @@ export function parseFrequencies(freqStr: string): FreqEntry[] {
       return { type: line, freq: '' };
     });
 }
-
-export interface VfrMinimum {
-  airspace: string;
-  visibility: string;
-  ceiling: string;
-}
-
-export const VFR_MINIMUMS: VfrMinimum[] = [
-  { airspace: 'Class A', visibility: 'IFR only', ceiling: 'IFR only' },
-  { airspace: 'Class B', visibility: '3 SM', ceiling: 'Clear of clouds' },
-  { airspace: 'Class C', visibility: '3 SM', ceiling: '500 below / 1,000 above / 2,000 horiz' },
-  { airspace: 'Class D', visibility: '3 SM', ceiling: '500 below / 1,000 above / 2,000 horiz' },
-  { airspace: 'Class E (< 10,000 MSL)', visibility: '3 SM', ceiling: '500 below / 1,000 above / 2,000 horiz' },
-  { airspace: 'Class E (≥ 10,000 MSL)', visibility: '5 SM', ceiling: '1,000 below / 1,000 above / 1 SM horiz' },
-  { airspace: 'Class G (≤ 1,200 AGL, day)', visibility: '1 SM', ceiling: 'Clear of clouds' },
-  { airspace: 'Class G (≤ 1,200 AGL, night)', visibility: '3 SM', ceiling: '500 below / 1,000 above / 2,000 horiz' },
-  { airspace: 'Class G (> 1,200 AGL < 10k, day)', visibility: '1 SM', ceiling: '500 below / 1,000 above / 2,000 horiz' },
-  { airspace: 'Class G (> 1,200 AGL < 10k, night)', visibility: '3 SM', ceiling: '500 below / 1,000 above / 2,000 horiz' },
-  { airspace: 'Class G (≥ 10,000 MSL)', visibility: '5 SM', ceiling: '1,000 below / 1,000 above / 1 SM horiz' },
-];
 
 export function flightRulesColor(category: string): string {
   switch (category) {

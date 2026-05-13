@@ -13,7 +13,7 @@ const CYCLE_01_STARTS: Record<number, string> = {
   2028: '2028-01-20',
 };
 
-export function getCurrentCycle(): string {
+function getCurrentCycle(): string {
   const now = new Date();
   const year = now.getFullYear();
 
@@ -55,16 +55,13 @@ const chartCache = new Map<string, Chart[]>();
 
 async function tryFetchXml(cycle: string): Promise<string | null> {
   const url = `https://aeronav.faa.gov/d-tpp/${cycle}/xml_data/d-TPP_Metafile.xml`;
-  console.log(`[charts] fetching ${url}`);
   try {
     const res = await fetch(url, { signal: AbortSignal.timeout(30_000) });
     if (!res.ok) {
       console.warn(`[charts] cycle ${cycle} returned HTTP ${res.status}`);
       return null;
     }
-    const text = await res.text();
-    console.log(`[charts] cycle ${cycle} — XML ${text.length} bytes`);
-    return text;
+    return await res.text();
   } catch (err) {
     console.warn(`[charts] cycle ${cycle} fetch error:`, err);
     return null;
@@ -78,9 +75,7 @@ async function ensureXml(cycle: string): Promise<{ xml: string; cycle: string }>
   let usedCycle = cycle;
 
   if (!xml) {
-    // Fall back to the previous cycle (published cycle may be one behind)
     const prev = previousCycle(cycle);
-    console.log(`[charts] falling back to previous cycle ${prev}`);
     xml = await tryFetchXml(prev);
     usedCycle = prev;
   }
@@ -101,10 +96,7 @@ function parseCharts(xml: string, icao: string, cycle: string): Chart[] {
     xml.match(new RegExp(`<airport[^>]+icao_ident="${upper}"[^>]*>([\\s\\S]*?)<\\/airport>`, 'i')) ??
     xml.match(new RegExp(`<airport[^>]*\\bID="${upper}"[^>]*>([\\s\\S]*?)<\\/airport>`, 'i'));
 
-  if (!airportMatch) {
-    console.log(`[charts] airport ${upper} not found in XML`);
-    return [];
-  }
+  if (!airportMatch) return [];
 
   const section = airportMatch[1];
   const charts: Chart[] = [];
@@ -125,7 +117,6 @@ function parseCharts(xml: string, icao: string, cycle: string): Chart[] {
     }
   }
 
-  console.log(`[charts] ${upper}: ${charts.length} charts`);
   return charts;
 }
 
