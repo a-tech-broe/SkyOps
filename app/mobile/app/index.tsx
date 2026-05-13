@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import {
   View,
   Text,
@@ -9,10 +9,15 @@ import {
   StyleSheet,
   Platform,
   KeyboardAvoidingView,
+  NativeSyntheticEvent,
+  NativeScrollEvent,
+  useWindowDimensions,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { api } from '../src/api/client';
+
+const MONO = Platform.OS === 'ios' ? 'Courier New' : 'monospace';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -50,9 +55,9 @@ function StatBox({ label, value }: { label: string; value: string }) {
   );
 }
 
-// ─── Weather Tab ──────────────────────────────────────────────────────────────
+// ─── Weather Panel ────────────────────────────────────────────────────────────
 
-function WeatherTab() {
+function WeatherPanel({ width }: { width: number }) {
   const [icao, setIcao] = useState('');
   const [metar, setMetar] = useState<MetarData | null>(null);
   const [loading, setLoading] = useState(false);
@@ -74,7 +79,12 @@ function WeatherTab() {
   const fr = metar ? getFlightRules(metar) : null;
 
   return (
-    <ScrollView style={s.tabContent} contentContainerStyle={s.tabContentInner} keyboardShouldPersistTaps="handled">
+    <ScrollView
+      style={[s.panel, { width }]}
+      contentContainerStyle={s.panelInner}
+      keyboardShouldPersistTaps="handled"
+      nestedScrollEnabled
+    >
       <View style={s.searchRow}>
         <TextInput
           style={s.input}
@@ -116,9 +126,9 @@ function WeatherTab() {
   );
 }
 
-// ─── NOTAMs Tab ───────────────────────────────────────────────────────────────
+// ─── NOTAMs Panel ─────────────────────────────────────────────────────────────
 
-function NotamsTab() {
+function NotamsPanel({ width }: { width: number }) {
   const [icao, setIcao] = useState('');
   const [items, setItems] = useState<unknown[]>([]);
   const [loading, setLoading] = useState(false);
@@ -137,7 +147,12 @@ function NotamsTab() {
   }
 
   return (
-    <ScrollView style={s.tabContent} contentContainerStyle={s.tabContentInner} keyboardShouldPersistTaps="handled">
+    <ScrollView
+      style={[s.panel, { width }]}
+      contentContainerStyle={s.panelInner}
+      keyboardShouldPersistTaps="handled"
+      nestedScrollEnabled
+    >
       <View style={s.searchRow}>
         <TextInput
           style={s.input}
@@ -172,9 +187,9 @@ function NotamsTab() {
   );
 }
 
-// ─── Airports Tab ─────────────────────────────────────────────────────────────
+// ─── Airports Panel ───────────────────────────────────────────────────────────
 
-function AirportsTab() {
+function AirportsPanel({ width }: { width: number }) {
   const [icao, setIcao] = useState('');
   const [airport, setAirport] = useState<AirportData | null>(null);
   const [loading, setLoading] = useState(false);
@@ -194,7 +209,12 @@ function AirportsTab() {
   }
 
   return (
-    <ScrollView style={s.tabContent} contentContainerStyle={s.tabContentInner} keyboardShouldPersistTaps="handled">
+    <ScrollView
+      style={[s.panel, { width }]}
+      contentContainerStyle={s.panelInner}
+      keyboardShouldPersistTaps="handled"
+      nestedScrollEnabled
+    >
       <View style={s.searchRow}>
         <TextInput
           style={s.input}
@@ -247,16 +267,28 @@ const TABS = [
 ];
 
 export default function HomeScreen() {
-  const [activeTab, setActiveTab] = useState('weather');
+  const { width } = useWindowDimensions();
+  const [activeIndex, setActiveIndex] = useState(0);
+  const pagerRef = useRef<ScrollView>(null);
+  const tabBarRef = useRef<ScrollView>(null);
+
+  function selectTab(index: number) {
+    setActiveIndex(index);
+    pagerRef.current?.scrollTo({ x: index * width, animated: true });
+  }
+
+  function onPagerScrollEnd(e: NativeSyntheticEvent<NativeScrollEvent>) {
+    const index = Math.round(e.nativeEvent.contentOffset.x / width);
+    if (index !== activeIndex) setActiveIndex(index);
+  }
 
   return (
     <SafeAreaView style={s.root} edges={['top', 'left', 'right', 'bottom']}>
       <KeyboardAvoidingView
         style={s.flex}
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-        keyboardVerticalOffset={0}
       >
-        {/* Logo header */}
+        {/* ── Logo — never moves ─────────────────────────────────── */}
         <View style={s.header}>
           <View style={s.logoRow}>
             <Ionicons name="airplane" size={20} color="#3b82f6" />
@@ -266,39 +298,61 @@ export default function HomeScreen() {
           </View>
         </View>
 
-        {/* Scrollable tab bar — stays pinned, never moves with page content */}
+        {/* ── Tab strip — scrolls horizontally, never moves vertically ── */}
         <ScrollView
+          ref={tabBarRef}
           horizontal
           showsHorizontalScrollIndicator={false}
+          bounces={false}
+          overScrollMode="never"
           style={s.tabBar}
           contentContainerStyle={s.tabBarInner}
         >
-          {TABS.map(tab => {
-            const active = activeTab === tab.key;
+          {TABS.map((tab, i) => {
+            const active = activeIndex === i;
             return (
               <TouchableOpacity
                 key={tab.key}
                 style={[s.tabBtn, active && s.tabBtnActive]}
-                onPress={() => setActiveTab(tab.key)}
+                onPress={() => selectTab(i)}
                 activeOpacity={0.7}
               >
-                <Ionicons
-                  name={tab.icon}
-                  size={15}
-                  color={active ? '#3b82f6' : '#64748b'}
-                />
-                <Text style={[s.tabLabel, active && s.tabLabelActive]}>
-                  {tab.label}
-                </Text>
+                <Ionicons name={tab.icon} size={15} color={active ? '#3b82f6' : '#64748b'} />
+                <Text style={[s.tabLabel, active && s.tabLabelActive]}>{tab.label}</Text>
               </TouchableOpacity>
             );
           })}
         </ScrollView>
 
-        {/* Active tab content — scrolls independently */}
-        {activeTab === 'weather'  && <WeatherTab />}
-        {activeTab === 'notams'   && <NotamsTab />}
-        {activeTab === 'airports' && <AirportsTab />}
+        {/* Active-tab underline indicator */}
+        <View style={s.indicatorTrack}>
+          <View
+            style={[
+              s.indicatorBar,
+              { width: width / TABS.length, transform: [{ translateX: activeIndex * (width / TABS.length) }] },
+            ]}
+          />
+        </View>
+
+        {/* ── Pager — panels swipe left/right, page body stays static ── */}
+        <ScrollView
+          ref={pagerRef}
+          horizontal
+          pagingEnabled
+          showsHorizontalScrollIndicator={false}
+          bounces={false}
+          overScrollMode="never"
+          scrollEventThrottle={16}
+          decelerationRate="fast"
+          onMomentumScrollEnd={onPagerScrollEnd}
+          style={s.pager}
+          // Prevent vertical gesture leakage into parent
+          directionalLockEnabled
+        >
+          <WeatherPanel  width={width} />
+          <NotamsPanel   width={width} />
+          <AirportsPanel width={width} />
+        </ScrollView>
       </KeyboardAvoidingView>
     </SafeAreaView>
   );
@@ -310,6 +364,7 @@ const s = StyleSheet.create({
   root: { flex: 1, backgroundColor: '#020617' },
   flex: { flex: 1 },
 
+  // Header
   header: {
     paddingHorizontal: 16,
     paddingVertical: 10,
@@ -323,14 +378,13 @@ const s = StyleSheet.create({
     fontSize: 18,
     fontWeight: '800',
     letterSpacing: 3,
-    fontFamily: Platform.OS === 'ios' ? 'Courier New' : 'monospace',
+    fontFamily: MONO,
   },
   logoAccent: { color: '#3b82f6' },
 
+  // Tab strip
   tabBar: {
     backgroundColor: '#0f172a',
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: '#1e293b',
     flexGrow: 0,
     flexShrink: 0,
   },
@@ -338,7 +392,8 @@ const s = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: 12,
-    paddingVertical: 6,
+    paddingTop: 6,
+    paddingBottom: 2,
     gap: 4,
   },
   tabBtn: {
@@ -349,13 +404,29 @@ const s = StyleSheet.create({
     paddingVertical: 8,
     borderRadius: 8,
   },
-  tabBtnActive: { backgroundColor: 'rgba(59,130,246,0.15)' },
+  tabBtnActive: { backgroundColor: 'rgba(59,130,246,0.12)' },
   tabLabel: { color: '#64748b', fontSize: 13, fontWeight: '600' },
   tabLabelActive: { color: '#3b82f6' },
 
-  tabContent: { flex: 1 },
-  tabContentInner: { padding: 16, gap: 12, paddingBottom: 24 },
+  // Indicator line under active tab
+  indicatorTrack: {
+    height: 2,
+    backgroundColor: '#1e293b',
+  },
+  indicatorBar: {
+    height: 2,
+    backgroundColor: '#3b82f6',
+    borderRadius: 1,
+  },
 
+  // Pager
+  pager: { flex: 1 },
+
+  // Each panel (full-width page inside the pager)
+  panel: { flex: 1 },
+  panelInner: { padding: 16, gap: 12, paddingBottom: 24 },
+
+  // Search
   searchRow: { flexDirection: 'row', gap: 8 },
   input: {
     flex: 1,
@@ -364,7 +435,7 @@ const s = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 12,
     color: '#f1f5f9',
-    fontFamily: Platform.OS === 'ios' ? 'Courier New' : 'monospace',
+    fontFamily: MONO,
     letterSpacing: 2,
     fontSize: 15,
     borderWidth: 1,
@@ -379,6 +450,7 @@ const s = StyleSheet.create({
   btnText: { color: '#fff', fontWeight: '700', fontSize: 15 },
   errorText: { color: '#f87171', textAlign: 'center', marginTop: 16 },
 
+  // Card
   card: {
     backgroundColor: '#0f172a',
     borderRadius: 16,
@@ -388,9 +460,9 @@ const s = StyleSheet.create({
     gap: 12,
   },
   cardHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-  icaoText: { color: '#f1f5f9', fontSize: 28, fontWeight: '800', fontFamily: Platform.OS === 'ios' ? 'Courier New' : 'monospace' },
-  frBadge: { fontSize: 14, fontWeight: '700', fontFamily: Platform.OS === 'ios' ? 'Courier New' : 'monospace' },
-  iata: { color: '#475569', fontSize: 14, fontFamily: Platform.OS === 'ios' ? 'Courier New' : 'monospace' },
+  icaoText: { color: '#f1f5f9', fontSize: 28, fontWeight: '800', fontFamily: MONO },
+  frBadge: { fontSize: 14, fontWeight: '700', fontFamily: MONO },
+  iata: { color: '#475569', fontSize: 14, fontFamily: MONO },
   airportName: { color: '#94a3b8', fontSize: 14 },
   location: { color: '#64748b', fontSize: 13 },
 
@@ -403,13 +475,13 @@ const s = StyleSheet.create({
     flex: 1,
   },
   statLabel: { color: '#475569', fontSize: 11, textTransform: 'uppercase', letterSpacing: 1 },
-  statValue: { color: '#e2e8f0', fontSize: 13, fontFamily: Platform.OS === 'ios' ? 'Courier New' : 'monospace', marginTop: 3 },
+  statValue: { color: '#e2e8f0', fontSize: 13, fontFamily: MONO, marginTop: 3 },
 
-  wx: { color: '#fbbf24', fontFamily: Platform.OS === 'ios' ? 'Courier New' : 'monospace', fontSize: 13 },
+  wx: { color: '#fbbf24', fontFamily: MONO, fontSize: 13 },
   rawLabel: { color: '#475569', fontSize: 10, textTransform: 'uppercase', letterSpacing: 1 },
   raw: {
     color: '#64748b',
-    fontFamily: Platform.OS === 'ios' ? 'Courier New' : 'monospace',
+    fontFamily: MONO,
     fontSize: 11,
     backgroundColor: '#020617',
     borderRadius: 8,
@@ -418,9 +490,9 @@ const s = StyleSheet.create({
   },
 
   sectionLabel: { color: '#475569', fontSize: 11, textTransform: 'uppercase', letterSpacing: 1, marginBottom: 4 },
-  rwy: { color: '#94a3b8', fontFamily: Platform.OS === 'ios' ? 'Courier New' : 'monospace', fontSize: 13 },
+  rwy: { color: '#94a3b8', fontFamily: MONO, fontSize: 13 },
 
-  notamNum: { color: '#60a5fa', fontFamily: Platform.OS === 'ios' ? 'Courier New' : 'monospace', fontSize: 13, fontWeight: '700' },
-  notamDates: { color: '#475569', fontFamily: Platform.OS === 'ios' ? 'Courier New' : 'monospace', fontSize: 11 },
-  notamText: { color: '#cbd5e1', fontFamily: Platform.OS === 'ios' ? 'Courier New' : 'monospace', fontSize: 12, lineHeight: 18 },
+  notamNum: { color: '#60a5fa', fontFamily: MONO, fontSize: 13, fontWeight: '700' },
+  notamDates: { color: '#475569', fontFamily: MONO, fontSize: 11 },
+  notamText: { color: '#cbd5e1', fontFamily: MONO, fontSize: 12, lineHeight: 18 },
 });
