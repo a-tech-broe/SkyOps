@@ -149,6 +149,46 @@ Each currency card shows the current count, a color-coded status badge (current 
 
 ---
 
+## Mobile App
+
+The native mobile app (Expo / React Native) targets iOS and Android and is optimised for everyday use on the flight line — no browser required.
+
+### Screens
+
+| Screen | What it does |
+|---|---|
+| **Weather** | ICAO METAR lookup — wind, visibility, altimeter, temp/dew, cloud layers, flight rules badge (VFR / MVFR / IFR / LIFR), raw METAR string |
+| **NOTAMs** | ICAO NOTAM lookup via FAA API — number, effective dates, full text |
+| **Airports** | ICAO airport lookup — elevation, lat/lon, longest runway, runway directions |
+
+### Navigation
+
+Screens are laid out as a **horizontal swipe-pager**: swipe left or right to move between Weather → NOTAMs → Airports. The tab strip at the top stays fixed — it scrolls independently from the content panels and never moves when you scroll within a screen. Tapping a tab label jumps to that panel; the sliding indicator bar tracks the active page.
+
+### Responsive layout
+
+The `useLayout()` hook drives every size value (font, padding, border radius, touch targets, grid columns) and re-runs automatically on orientation change. The pager re-snaps to the correct page after rotation so no content is lost.
+
+| Device class | Stat grid | Font scale | Content width |
+|---|---|---|---|
+| Phone portrait | 2 columns | base | full width |
+| Phone landscape | 3 columns | base | full width |
+| iPad portrait | 3 columns | +2 pt | max 720 px centred |
+| iPad landscape | 4 columns | +2 pt | max 720 px centred |
+
+### Running the mobile app
+
+```bash
+cd app/mobile
+npm install
+npx expo start          # opens Metro — scan QR with Expo Go on device
+npx expo start --ios    # or --android for simulator
+```
+
+Set `EXPO_PUBLIC_API_URL` in `app/mobile/.env` (or export it) to point at the running backend before launching.
+
+---
+
 ## Dispatch Strip
 
 Enter any number of ICAO codes (space or comma-separated) to get a parallel weather pull for all stations simultaneously. Each station is summarized in a single row:
@@ -198,7 +238,7 @@ SkyOps/
 ├── app/
 │   ├── backend/                    # Node.js 22 + Express + TypeScript API + prom-client metrics
 │   ├── web/                        # React 18 + Vite + Tailwind CSS (light/dark mode)
-│   ├── mobile/                     # Expo (React Native) + Expo Router
+│   ├── mobile/                     # Expo (React Native) — single-screen horizontal pager
 │   ├── docker-compose.yml          # Build from source (local prod simulation)
 │   └── docker-compose.dev.yml      # Dev with hot reload
 ├── infra/
@@ -225,7 +265,7 @@ SkyOps/
 | Layer | Tech |
 |---|---|
 | Web | React 18 + Vite + Tailwind CSS (dark mode via class strategy) |
-| Mobile | Expo (React Native) + Expo Router |
+| Mobile | Expo (React Native) + Expo Router — custom horizontal pager, fully responsive (phone · tablet · landscape) |
 | API | Node.js 22 + Express + TypeScript + prom-client |
 | Database | PostgreSQL 16 |
 | Containers | Docker + Docker Compose |
@@ -239,22 +279,23 @@ SkyOps/
 ### Dev
 
 ```bash
-cp app/.env.example app/.env
-# fill in FAA_CLIENT_ID and FAA_CLIENT_SECRET
+# Copy and fill in your env vars
+cp .env .env.local           # or create app/.env from scratch
+# Required: FAA_CLIENT_ID, FAA_CLIENT_SECRET, DB_USER, DB_PASSWORD
+
 docker compose -f app/docker-compose.dev.yml up --build
 ```
 
-| Service | URL |
+| Service | URL / method |
 |---|---|
 | Web | http://localhost:5173 |
 | API | http://localhost:3001 |
-| Mobile | Scan QR from Expo dev server output |
+| Mobile | `cd app/mobile && npx expo start` — scan QR with Expo Go |
 
 ### Production (build from source)
 
 ```bash
-cp app/.env.example app/.env
-# fill in DB_PASSWORD, FAA_CLIENT_ID, FAA_CLIENT_SECRET
+# Required: DB_PASSWORD, FAA_CLIENT_ID, FAA_CLIENT_SECRET
 docker compose -f app/docker-compose.yml up --build -d
 ```
 
