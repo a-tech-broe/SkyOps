@@ -80,4 +80,13 @@ export const aviationWeather = {
 
   airportBbox: (south: number, north: number, west: number, east: number) =>
     get<Record<string, unknown>[]>(`/airport?bbox=${south},${west},${north},${east}&format=json`),
+
+  metarBbox: (south: number, west: number, north: number, east: number) =>
+    get<Metar[]>(`/metar?bbox=${south},${west},${north},${east}&format=json`),
+
+  airsigmetGeoJSON: () =>
+    get<unknown>(`/airsigmet?format=geojson`),
+
+  tfrGeoJSON: () =>
+    get<unknown>(`/tfr?format=geojson`),
 };

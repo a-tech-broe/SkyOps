@@ -1,4 +1,5 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { api } from '../api/client';
 import MetarDisplay, { MetarData } from '../components/MetarDisplay';
 import TafDisplay, { TafData } from '../components/TafDisplay';
@@ -11,6 +12,7 @@ interface Pirep {
 }
 
 export default function WeatherPage() {
+  const [searchParams] = useSearchParams();
   const [icao, setIcao] = useState('');
   const [query, setQuery] = useState('');
   const [metar, setMetar] = useState<MetarData | null>(null);
@@ -18,6 +20,11 @@ export default function WeatherPage() {
   const [pireps, setPireps] = useState<Pirep[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+
+  useEffect(() => {
+    const param = searchParams.get('icao');
+    if (param) doSearch(param.toUpperCase());
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   async function doSearch(id: string) {
     if (!id || id.length < 3) return;

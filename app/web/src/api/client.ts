@@ -26,6 +26,11 @@ export const api = {
       get(`/airports/${icao}/alternates?radius=${radiusNm}`),
   },
   winds: (icao: string) => get(`/winds/${icao}`),
+  map: {
+    metars: (bbox: string) => get(`/map/metars?bbox=${bbox}`),
+    sigmets: () => get(`/map/sigmets`),
+    tfrs: () => get(`/map/tfrs`),
+  },
   history: {
     get: (type: string) =>
       get<string[]>(`/history?deviceId=${getDeviceId()}&type=${type}`),

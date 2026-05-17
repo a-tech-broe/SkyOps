@@ -6,6 +6,7 @@ import notamsRouter from './routes/notams';
 import airportsRouter from './routes/airports';
 import historyRouter from './routes/history';
 import windsRouter from './routes/winds';
+import mapRouter from './routes/map';
 import { errorHandler } from './middleware/errorHandler';
 import { initDb } from './db/pool';
 
@@ -23,6 +24,7 @@ app.use('/api/notams', notamsRouter);
 app.use('/api/airports', airportsRouter);
 app.use('/api/history', historyRouter);
 app.use('/api/winds', windsRouter);
+app.use('/api/map', mapRouter);
 
 app.use(errorHandler);
 
