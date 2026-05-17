@@ -297,6 +297,7 @@ docker compose -f app/docker-compose.yml up --build -d
 |---|---|---|
 | `DB_USER` | Yes | PostgreSQL username |
 | `DB_PASSWORD` | Yes | PostgreSQL password |
+| `JWT_SECRET` | Yes | Secret used to sign auth tokens — set a long random string in production |
 | `FAA_CLIENT_ID` | Yes (NOTAMs) | FAA API client ID — register at [api.faa.gov](https://api.faa.gov/) |
 | `FAA_CLIENT_SECRET` | Yes (NOTAMs) | FAA API client secret |
 | `EXPO_PUBLIC_API_URL` | Yes | Backend URL for mobile |
@@ -340,6 +341,7 @@ Runs all security gates, then:
 | `DB_PASSWORD` | CD — written to app EC2 `.env` |
 | `FAA_CLIENT_ID` | CD — written to app EC2 `.env` |
 | `FAA_CLIENT_SECRET` | CD — written to app EC2 `.env` |
+| `JWT_SECRET` | CD — written to app EC2 `.env`; signs auth tokens |
 | `APP_DOMAIN` | CD — ACM cert domain + smoke tests (e.g. `skyops.example.com`) |
 | `HOSTED_ZONE_ID` | CI/CD — Route53 hosted zone ID for auto DNS validation + A records (optional) |
 | `AWS_ACCESS_KEY_ID` | CI infra plan + CD infra apply |

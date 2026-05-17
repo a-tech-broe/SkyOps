@@ -1,6 +1,9 @@
 import { useState, useEffect } from 'react';
-import { Routes, Route, Navigate, useLocation } from 'react-router-dom';
+import { Routes, Route, useLocation } from 'react-router-dom';
+import { AuthProvider } from './context/AuthContext';
 import NavBar from './components/NavBar';
+import ProtectedRoute from './components/ProtectedRoute';
+import LandingPage from './pages/LandingPage';
 import WeatherPage from './pages/WeatherPage';
 import NOTAMPage from './pages/NOTAMPage';
 import AirportPage from './pages/AirportPage';
@@ -10,7 +13,9 @@ import CurrencyPage from './pages/CurrencyPage';
 import DispatchPage from './pages/DispatchPage';
 import MapPage from './pages/MapPage';
 
-export default function App() {
+const FULL_WIDTH_PATHS = ['/', '/map'];
+
+function AppShell() {
   const [dark, setDark] = useState(() => {
     const stored = localStorage.getItem('theme');
     if (stored) return stored === 'dark';
@@ -23,24 +28,39 @@ export default function App() {
   }, [dark]);
 
   const location = useLocation();
-  const isMap = location.pathname === '/map';
+  const isFullWidth = FULL_WIDTH_PATHS.includes(location.pathname);
 
   return (
     <div className="min-h-screen flex flex-col">
-      <NavBar dark={dark} onToggle={() => setDark((d) => !d)} />
-      <main className={isMap ? 'flex-1 overflow-hidden' : 'flex-1 container mx-auto px-4 py-6 max-w-5xl'}>
+      {/* Landing page has its own header */}
+      {location.pathname !== '/' && (
+        <NavBar dark={dark} onToggle={() => setDark(d => !d)} />
+      )}
+      <main className={
+        isFullWidth
+          ? 'flex-1 overflow-hidden'
+          : 'flex-1 container mx-auto px-4 py-6 max-w-5xl'
+      }>
         <Routes>
-          <Route path="/" element={<Navigate to="/weather" replace />} />
-          <Route path="/map" element={<MapPage />} />
-          <Route path="/weather" element={<WeatherPage />} />
-          <Route path="/notams" element={<NOTAMPage />} />
-          <Route path="/airports" element={<AirportPage />} />
-          <Route path="/winds" element={<WindsAloftPage />} />
-          <Route path="/route" element={<RouteBriefingPage />} />
-          <Route path="/currency" element={<CurrencyPage />} />
-          <Route path="/dispatch" element={<DispatchPage />} />
+          <Route path="/" element={<LandingPage />} />
+          <Route path="/map"      element={<ProtectedRoute><MapPage /></ProtectedRoute>} />
+          <Route path="/weather"  element={<ProtectedRoute><WeatherPage /></ProtectedRoute>} />
+          <Route path="/notams"   element={<ProtectedRoute><NOTAMPage /></ProtectedRoute>} />
+          <Route path="/airports" element={<ProtectedRoute><AirportPage /></ProtectedRoute>} />
+          <Route path="/winds"    element={<ProtectedRoute><WindsAloftPage /></ProtectedRoute>} />
+          <Route path="/route"    element={<ProtectedRoute><RouteBriefingPage /></ProtectedRoute>} />
+          <Route path="/currency" element={<ProtectedRoute><CurrencyPage /></ProtectedRoute>} />
+          <Route path="/dispatch" element={<ProtectedRoute><DispatchPage /></ProtectedRoute>} />
         </Routes>
       </main>
     </div>
+  );
+}
+
+export default function App() {
+  return (
+    <AuthProvider>
+      <AppShell />
+    </AuthProvider>
   );
 }
