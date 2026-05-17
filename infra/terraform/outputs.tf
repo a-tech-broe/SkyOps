@@ -23,26 +23,6 @@ output "ssh_command" {
   value       = "ssh -i ~/.ssh/${var.key_name}.pem ec2-user@${data.aws_eip.skyops.public_ip}"
 }
 
-output "app_private_ip" {
-  description = "App EC2 private IP (VPC-internal — used by Prometheus to scrape exporters)"
-  value       = aws_instance.skyops.private_ip
-}
-
-output "monitoring_private_ip" {
-  description = "Monitoring EC2 private IP (VPC-internal — used by Promtail to push logs to Loki)"
-  value       = aws_instance.monitoring.private_ip
-}
-
-output "monitoring_public_ip" {
-  description = "Monitoring EC2 Elastic IP"
-  value       = data.aws_eip.monitoring.public_ip
-}
-
-output "grafana_url" {
-  description = "Grafana dashboard URL"
-  value       = "http://${data.aws_eip.monitoring.public_ip}:3000"
-}
-
 output "acm_validation_records" {
   description = "Add these DNS records at your registrar to validate the ACM certificate (only shown when hosted_zone_id is not set)"
   value = var.hosted_zone_id == "" ? {
