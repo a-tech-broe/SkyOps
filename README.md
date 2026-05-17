@@ -266,7 +266,7 @@ SkyOps/
 |---|---|
 | Web | React 18 + Vite + Tailwind CSS (dark mode via class strategy) |
 | Mobile | Expo (React Native) + Expo Router — custom horizontal pager, fully responsive (phone · tablet · landscape) |
-| API | Node.js 22 + Express + TypeScript + prom-client |
+| API | Node.js 22 + Express + TypeScript + prom-client · geoip-lite · ua-parser-js |
 | Database | PostgreSQL 16 |
 | Containers | Docker + Docker Compose |
 | Infra | Terraform → AWS (2× EC2 m5.xlarge, ALB, ACM, IAM) |
@@ -459,6 +459,7 @@ The app EC2 runs lightweight exporters; a dedicated monitoring EC2 runs the full
 | Source | Location | Data |
 |---|---|---|
 | Backend `/metrics` | App EC2 :3001 | HTTP request rate, latency (p50/p95/p99), error rate |
+| Backend request logs | App EC2 stdout → Loki | Structured JSON per request: method, path, status, duration_ms, country, region, city, browser, OS, device type |
 | node-exporter | App EC2 :9100 | CPU, memory, disk, network, system load |
 | cAdvisor | App EC2 :8082 | Per-container CPU, memory, restarts |
 | Blackbox Exporter | Monitoring EC2 | External uptime probes (`/health`, web) |
@@ -478,6 +479,15 @@ Go to **Explore → Loki** and use label selectors:
 | `{job="system", host="skyops-app"}` | OS-level logs |
 | `{service="backend"} \|= "ERROR"` | Backend errors only |
 | `{container=~".+"}` | All container logs |
+
+Backend logs are structured JSON — each line is a request record. Useful LogQL expressions:
+
+| Query | What you see |
+|---|---|
+| `{service="backend"} \| json \| status >= 500` | Server errors |
+| `{service="backend"} \| json \| country = "US"` | US traffic only |
+| `{service="backend"} \| json \| device = "mobile"` | Mobile client requests |
+| `{service="backend"} \| json \| duration_ms > 1000` | Slow requests (> 1 s) |
 
 The `service` label is sourced from the Docker Compose `com.docker.compose.service` container label via Promtail's Docker SD (`__meta_docker_container_label_com_docker_compose_service`).
 
