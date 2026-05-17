@@ -236,26 +236,17 @@ CREATE TABLE search_history (
 ```
 SkyOps/
 ├── app/
-│   ├── backend/                    # Node.js 22 + Express + TypeScript API + prom-client metrics
+│   ├── backend/                    # Node.js 22 + Express + TypeScript API
 │   ├── web/                        # React 18 + Vite + Tailwind CSS (light/dark mode)
 │   ├── mobile/                     # Expo (React Native) — single-screen horizontal pager
 │   ├── docker-compose.yml          # Build from source (local prod simulation)
 │   └── docker-compose.dev.yml      # Dev with hot reload
 ├── infra/
-│   ├── terraform/                  # AWS — EC2 × 2, ALB, ACM, IAM, SGs (Terraform ≥ 1.8)
-│   ├── docker-compose.prod.yml     # App EC2 runtime (web + backend + db)
-│   ├── docker-compose.exporters.yml# App EC2 exporters (node-exporter · cAdvisor · Promtail)
-│   └── promtail-app.yml            # Promtail config — Docker SD + system logs → Loki (private IP)
-├── monit/                          # Monitoring EC2 stack
-│   ├── docker-compose.yml          # Prometheus · Grafana · Alertmanager · Loki · Blackbox
-│   ├── prometheus/                 # Scrape configs + alert rules
-│   ├── grafana/                    # Auto-provisioned datasources + SkyOps dashboard
-│   ├── alertmanager/               # Notification routing (Slack / email)
-│   ├── loki/                       # Log aggregation (30-day retention)
-│   └── blackbox/                   # Endpoint uptime probes
+│   ├── terraform/                  # AWS — EC2, ALB, ACM, IAM, SGs (Terraform ≥ 1.8)
+│   └── docker-compose.prod.yml     # App EC2 runtime (web + backend + db)
 └── .github/workflows/
     ├── ci.yml   # PR / dev — lint · scan · build · infra plan
-    └── cd.yml   # main    — build · push · infra apply · deploy · exporters · monitoring · smoke test
+    └── cd.yml   # main    — build · push · infra apply · deploy · smoke test
 ```
 
 ---
@@ -266,11 +257,10 @@ SkyOps/
 |---|---|
 | Web | React 18 + Vite + Tailwind CSS (dark mode via class strategy) |
 | Mobile | Expo (React Native) + Expo Router — custom horizontal pager, fully responsive (phone · tablet · landscape) |
-| API | Node.js 22 + Express + TypeScript + prom-client |
+| API | Node.js 22 + Express + TypeScript |
 | Database | PostgreSQL 16 |
 | Containers | Docker + Docker Compose |
-| Infra | Terraform → AWS (2× EC2 m5.xlarge, ALB, ACM, IAM) |
-| Monitoring | Prometheus · Grafana · Alertmanager · Loki · Promtail · cAdvisor · node-exporter · Blackbox |
+| Infra | Terraform → AWS (EC2, ALB, ACM, IAM) |
 
 ---
 
@@ -335,10 +325,8 @@ Runs all security gates, then:
 | Job | What happens |
 |---|---|
 | Build & push | Multi-arch (`amd64` + `arm64`) → DockerHub + Trivy scan + Cosign sign + SBOM |
-| Infra apply | `terraform apply` — provisions EC2 × 2, ALB, ACM, SGs; outputs private IPs for both instances |
+| Infra apply | `terraform apply` — provisions EC2, ALB, ACM, SGs |
 | Deploy | SSH → app EC2 — writes `.env` + `docker-compose.prod.yml` → `docker compose up` |
-| Deploy exporters | SSH → app EC2 — writes `.env` with Loki private IP; starts node-exporter, cAdvisor, Promtail |
-| Deploy monitoring | SSH → monitoring EC2 — writes `.env` with app EC2 private IP + domain; starts full stack |
 | Production smoke test | HTTPS `curl` against `APP_DOMAIN`: `/health`, web HTML, weather and airport endpoints |
 | Summary | Release digest table + `cosign verify` instructions |
 
@@ -354,15 +342,13 @@ Runs all security gates, then:
 | `FAA_CLIENT_SECRET` | CD — written to app EC2 `.env` |
 | `APP_DOMAIN` | CD — ACM cert domain + smoke tests (e.g. `skyops.example.com`) |
 | `HOSTED_ZONE_ID` | CI/CD — Route53 hosted zone ID for auto DNS validation + A records (optional) |
-| `GRAFANA_ADMIN_PASSWORD` | CD — Grafana admin password |
 | `AWS_ACCESS_KEY_ID` | CI infra plan + CD infra apply |
 | `AWS_SECRET_ACCESS_KEY` | CI infra plan + CD infra apply |
 | `AWS_REGION` | Optional — defaults to `us-east-1` |
 | `TF_BACKEND_BUCKET` | Terraform S3 state bucket name |
 | `TF_BACKEND_DYNAMO_TABLE` | Terraform DynamoDB lock table name |
 | `EC2_HOST` | App server Elastic IP — allocate before first deploy, set as secret |
-| `MONITOR_HOST` | Monitoring server Elastic IP — allocate before first deploy, set as secret |
-| `EC2_SSH_KEY` | Private key content (PEM) for both EC2s |
+| `EC2_SSH_KEY` | Private key content (PEM) for app EC2 |
 | `SEMGREP_APP_TOKEN` | Optional — enables Semgrep cloud dashboard |
 
 ---
@@ -382,42 +368,33 @@ Application Load Balancer  (HTTPS :443 — TLS terminated)
    ├── /health ──────► App EC2 :3001
    └── /*      ──────► App EC2 :80    (nginx → React SPA)
 
-App EC2  (m5.xlarge)                    Monitoring EC2  (m5.xlarge)
-├── web          :80                    ├── Prometheus      :9090
-├── backend      :3001  ◄─ private IP ──┤   (scrapes via VPC private IPs)
-├── node-exporter:9100  ◄─ private IP ──┤
-├── cAdvisor     :8082  ◄─ private IP ──┤
-└── Promtail ──── push (private IP) ───►├── Loki            :3100
-                                        ├── Grafana         :3000
-                                        ├── Alertmanager    :9093
-                                        └── Blackbox        (internal)
+App EC2  (m5.xlarge)
+├── web      :80
+└── backend  :3001
 ```
-
-Security groups are locked down: scrape ports (3001, 9100, 8082) on the app EC2 accept traffic **only from the monitoring security group**. Loki (port 3100) on the monitoring EC2 accepts traffic from the VPC CIDR only — Promtail connects via the monitoring EC2's **private IP**. Prometheus scrapes the app EC2 via its **private IP** as well. Grafana, Prometheus, and Alertmanager are restricted to `allowed_ssh_cidr`.
 
 ### What gets provisioned
 
 | Resource | Detail |
 |---|---|
 | App EC2 | Amazon Linux 2023, `m5.xlarge`, 20 GB gp3 encrypted |
-| Monitoring EC2 | Amazon Linux 2023, `m5.xlarge`, 30 GB gp3 encrypted |
 | ALB | Application Load Balancer — HTTP→HTTPS redirect, path-based routing |
 | ACM | TLS certificate for `APP_DOMAIN` — DNS validated |
 | Internet Gateway | Attached to default VPC |
-| Security groups | ALB SG (80+443 public); App SG; Monitoring SG — all with `prevent_destroy` |
+| Security groups | ALB SG (80+443 public); App SG — both with `prevent_destroy` |
 | IAM role | Least-privilege — SSM read-only scoped to `/skyops/*` |
-| Elastic IPs | Pre-allocated — referenced as data sources, never recreated by Terraform |
+| Elastic IP | Pre-allocated — referenced as a data source, never recreated by Terraform |
 
 All resources use `lifecycle { prevent_destroy = true }` — Terraform will never destroy existing infrastructure.
 
 ### First-time setup
 
-1. Allocate two Elastic IPs in your AWS account (one for app, one for monitoring)
-2. Set `EC2_HOST` and `MONITOR_HOST` GitHub Secrets to those IPs **before the first run**
+1. Allocate an Elastic IP in your AWS account for the app EC2
+2. Set `EC2_HOST` GitHub Secret to that IP **before the first run**
 3. Create an EC2 key pair named `keyit` in your AWS account
 4. Register a domain and point it at AWS (Route53 recommended)
 5. Add all remaining GitHub Secrets listed above
-6. Push to `main` — the pipeline provisions both servers, deploys the app, and starts the full monitoring stack
+6. Push to `main` — the pipeline provisions the server and deploys the app
 
 **With Route53 (`HOSTED_ZONE_ID` set):** DNS validation and A records are created automatically.
 
@@ -438,114 +415,6 @@ terraform init \
 terraform plan   # preview
 terraform apply  # provision
 ```
-
----
-
-## Monitoring
-
-The app EC2 runs lightweight exporters; a dedicated monitoring EC2 runs the full observability stack. Both are deployed automatically on every CD run.
-
-### Access
-
-| Service | URL | Auth |
-|---|---|---|
-| Grafana | `http://<MONITOR_HOST>:3000` | `admin` / `GRAFANA_ADMIN_PASSWORD` |
-| Prometheus | `http://<MONITOR_HOST>:9090` | None (restricted by SG to `allowed_ssh_cidr`) |
-| Alertmanager | `http://<MONITOR_HOST>:9093` | None (restricted by SG to `allowed_ssh_cidr`) |
-| Loki | VPC-internal only — not exposed publicly | Accessible via Grafana datasource |
-
-### What's collected
-
-| Source | Location | Data |
-|---|---|---|
-| Backend `/metrics` | App EC2 :3001 | HTTP request rate, latency (p50/p95/p99), error rate |
-| node-exporter | App EC2 :9100 | CPU, memory, disk, network, system load |
-| cAdvisor | App EC2 :8082 | Per-container CPU, memory, restarts |
-| Blackbox Exporter | Monitoring EC2 | External uptime probes (`/health`, web) |
-| Promtail → Loki | App EC2 → Monitoring EC2 (private IP) | All container logs + system logs (30-day retention) |
-
-### Querying logs in Grafana
-
-The Loki datasource is auto-provisioned in Grafana at `http://loki:3100` — this is Docker's internal DNS name for the Loki container (both run on the `monit` network). The URL is correct as-is; Grafana queries Loki server-side.
-
-Go to **Explore → Loki** and use label selectors:
-
-| Query | What you see |
-|---|---|
-| `{service="backend"}` | Node.js backend logs |
-| `{service="web"}` | Nginx access + error logs |
-| `{service="db"}` | Postgres logs |
-| `{job="system", host="skyops-app"}` | OS-level logs |
-| `{service="backend"} \|= "ERROR"` | Backend errors only |
-| `{container=~".+"}` | All container logs |
-
-The `service` label is sourced from the Docker Compose `com.docker.compose.service` container label via Promtail's Docker SD (`__meta_docker_container_label_com_docker_compose_service`).
-
-### Pre-built dashboard
-
-The **SkyOps — App & Infra** dashboard auto-provisions in Grafana with panels for:
-
-- Service uptime status
-- Request rate by endpoint
-- P50 / P95 / P99 latency
-- HTTP error rate by status code
-- CPU and memory usage
-- Disk usage
-- Per-container CPU and memory
-- Live backend logs (via Loki)
-
-### Debugging the monitoring stack
-
-Check service status and logs on the monitoring EC2:
-
-```bash
-# Are all containers up?
-sudo docker compose -f /opt/monit/docker-compose.yml ps
-
-# Loki startup logs (most likely to fail — see notes below)
-sudo docker compose -f /opt/monit/docker-compose.yml logs loki --tail=40
-
-# Prometheus config after entrypoint sed substitution
-sudo docker compose -f /opt/monit/docker-compose.yml exec prometheus cat /tmp/prometheus.yml
-
-# Verify Loki is ready
-curl -s http://localhost:3100/ready
-
-# Check what log streams Loki has ingested
-curl -s http://localhost:3100/loki/api/v1/labels
-```
-
-Check Promtail on the app EC2:
-
-```bash
-sudo docker compose -f /opt/exporters/docker-compose.yml logs promtail --tail=40
-```
-
-**Known gotchas:**
-
-| Component | Issue | Fix |
-|---|---|---|
-| Loki | Crashes on startup with retention enabled | `compactor.delete_request_store: filesystem` is required in `loki.yml` when `retention_enabled: true` (Loki 2.9.x) |
-| Loki | Volume permission errors | Service runs as `user: "0"` (root) to avoid UID mismatch with named volume |
-| cAdvisor | Fails to start on Amazon Linux 2023 | `devices: /dev/kmsg` removed — device doesn't exist on AL2023 |
-| Prometheus | Targets show as down | Scrapes via **private IP** (not public EIP) — Terraform outputs `app_private_ip` and it's injected via `.env` at deploy time |
-| Promtail | Logs not reaching Loki | Pushes to Loki's **private IP** (port 3100 is VPC-only in the SG); `-config.expand-env=true` required to expand `${LOKI_URL}` |
-| Promtail | `service` label empty in Loki | Docker SD labels use `__meta_docker_container_label_com_docker_compose_service`, not `__meta_docker_compose_service` |
-
-### Alerts
-
-Alerts are defined in `monit/prometheus/alerts/` and routed through Alertmanager. To enable notifications, edit `monit/alertmanager/alertmanager.yml` and configure a Slack webhook or email receiver.
-
-| Alert | Condition |
-|---|---|
-| `BackendDown` | Backend unreachable > 1 min |
-| `HighErrorRate` | > 5% 5xx responses for > 2 min |
-| `SlowAPIResponse` | P95 latency > 2s for > 5 min |
-| `EndpointDown` | Blackbox probe failing > 2 min |
-| `HighCPU` | CPU > 80% for > 5 min |
-| `LowMemory` | < 15% memory available for > 5 min |
-| `DiskSpaceLow` | < 20% disk remaining |
-| `ContainerDown` | backend, web, or db container missing > 2 min |
 
 ---
 
@@ -573,4 +442,3 @@ Alerts are defined in `monit/prometheus/alerts/` and routed through Alertmanager
 | `GET` | `/api/history?deviceId=&type=` | Recent ICAO searches for device |
 | `POST` | `/api/history` | Record a search event |
 | `GET` | `/health` | Health check |
-| `GET` | `/metrics` | Prometheus metrics |

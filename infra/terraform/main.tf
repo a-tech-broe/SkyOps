@@ -118,30 +118,6 @@ resource "aws_security_group" "skyops" {
   }
 
   ingress {
-    description     = "Prometheus scrape - backend metrics"
-    from_port       = 3001
-    to_port         = 3001
-    protocol        = "tcp"
-    security_groups = [aws_security_group.monitoring.id]
-  }
-
-  ingress {
-    description     = "Prometheus scrape - node-exporter"
-    from_port       = 9100
-    to_port         = 9100
-    protocol        = "tcp"
-    security_groups = [aws_security_group.monitoring.id]
-  }
-
-  ingress {
-    description     = "Prometheus scrape - cAdvisor"
-    from_port       = 8082
-    to_port         = 8082
-    protocol        = "tcp"
-    security_groups = [aws_security_group.monitoring.id]
-  }
-
-  ingress {
     description = "SSH"
     from_port   = 22
     to_port     = 22

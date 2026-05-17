@@ -195,10 +195,6 @@ jobs:
     name: Infra Apply (Terraform)
     runs-on: ubuntu-latest
     needs: [build-push]
-    outputs:
-      monitor_ip:          ${{ steps.tf-outputs.outputs.monitor_ip }}
-      app_private_ip:      ${{ steps.tf-outputs.outputs.app_private_ip }}
-      monitor_private_ip:  ${{ steps.tf-outputs.outputs.monitor_private_ip }}
     defaults:
       run:
         working-directory: infra/terraform
@@ -211,7 +207,6 @@ jobs:
       TF_VAR_domain_name: ${{ secrets.APP_DOMAIN }}
       TF_VAR_hosted_zone_id: ${{ secrets.HOSTED_ZONE_ID }}
       TF_VAR_app_eip: ${{ secrets.EC2_HOST }}
-      TF_VAR_monitor_eip: ${{ secrets.MONITOR_HOST }}
 
     steps:
       - uses: actions/checkout@v4
@@ -340,27 +335,7 @@ jobs:
 
       - name: Terraform Outputs
         id: tf-outputs
-        run: |
-          terraform output
-          MONITOR_IP=$(terraform output -raw monitoring_public_ip 2>/dev/null || echo "")
-          APP_PRIVATE_IP=$(terraform output -raw app_private_ip 2>/dev/null || echo "")
-          MONITOR_PRIVATE_IP=$(terraform output -raw monitoring_private_ip 2>/dev/null || echo "")
-          echo "monitor_ip=$MONITOR_IP"                   >> $GITHUB_OUTPUT
-          echo "app_private_ip=$APP_PRIVATE_IP"           >> $GITHUB_OUTPUT
-          echo "monitor_private_ip=$MONITOR_PRIVATE_IP"   >> $GITHUB_OUTPUT
-
-      - name: Wait for monitoring EC2 to pass status checks
-        run: |
-          REGION="${{ secrets.AWS_REGION || 'us-east-1' }}"
-          MONITOR_ID=$(aws ec2 describe-instances \
-            --filters "Name=tag:Name,Values=skyops-monitoring" "Name=instance-state-name,Values=running" \
-            --query "Reservations[0].Instances[0].InstanceId" \
-            --output text --region "$REGION")
-          if [ -n "$MONITOR_ID" ] && [ "$MONITOR_ID" != "None" ]; then
-            echo "Waiting for monitoring instance $MONITOR_ID..."
-            aws ec2 wait instance-status-ok --instance-ids "$MONITOR_ID" --region "$REGION"
-            echo "Monitoring instance ready"
-          fi
+        run: terraform output
 
   # ── 6. Deploy — write .env + restart containers ──────────────────
   deploy:
@@ -462,126 +437,7 @@ jobs:
           FAA_CLIENT_SECRET:  ${{ secrets.FAA_CLIENT_SECRET }}
           VITE_API_URL:       https://${{ secrets.APP_DOMAIN }}
 
-  # ── 7. Deploy exporters to app EC2 ───────────────────────────────
-  deploy-exporters:
-    name: Deploy Exporters to App EC2
-    runs-on: ubuntu-latest
-    needs: [deploy, infra-apply]
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Upload exporter configs to app EC2
-        uses: appleboy/scp-action@v0.1.7
-        with:
-          host: ${{ secrets.EC2_HOST }}
-          username: ec2-user
-          key: ${{ secrets.EC2_SSH_KEY }}
-          source: "infra/docker-compose.exporters.yml,infra/promtail-app.yml"
-          target: "/home/ec2-user/"
-          overwrite: true
-
-      - name: Start exporters on app EC2
-        uses: appleboy/ssh-action@v1.2.0
-        with:
-          host: ${{ secrets.EC2_HOST }}
-          username: ec2-user
-          key: ${{ secrets.EC2_SSH_KEY }}
-          envs: MONITOR_PRIVATE_IP
-          script: |
-            set -e
-            sudo mkdir -p /opt/exporters
-            sudo cp /home/ec2-user/infra/docker-compose.exporters.yml /opt/exporters/docker-compose.yml
-            sudo cp /home/ec2-user/infra/promtail-app.yml              /opt/exporters/promtail-app.yml
-            sudo tee /opt/exporters/.env > /dev/null <<EOF
-            LOKI_URL=http://${MONITOR_PRIVATE_IP}:3100
-            EOF
-            # Install Docker if missing
-            if ! command -v docker &>/dev/null; then
-              sudo dnf install -y docker && sudo systemctl enable --now docker
-            fi
-            if ! sudo docker compose version &>/dev/null 2>&1; then
-              curl -fsSL -o /tmp/docker-compose \
-                "https://github.com/docker/compose/releases/download/v2.27.0/docker-compose-linux-x86_64"
-              sudo mkdir -p /usr/local/lib/docker/cli-plugins
-              sudo install -m 0755 /tmp/docker-compose /usr/local/lib/docker/cli-plugins/docker-compose
-            fi
-            cd /opt/exporters
-            sudo docker compose pull
-            sudo docker compose up -d --remove-orphans
-        env:
-          MONITOR_PRIVATE_IP: ${{ needs.infra-apply.outputs.monitor_private_ip }}
-
-  # ── 8. Deploy monitoring stack to monitoring EC2 ─────────────────
-  deploy-monitoring:
-    name: Deploy Monitoring Stack to Monitoring EC2
-    runs-on: ubuntu-latest
-    needs: [deploy-exporters, infra-apply]
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Wait for SSH on monitoring EC2
-        run: |
-          for i in $(seq 1 24); do
-            nc -z -w5 "${{ secrets.MONITOR_HOST }}" 22 && echo "SSH ready after $((i * 10))s" && exit 0
-            echo "Attempt $i/24: port 22 not yet open, retrying in 10s..."
-            sleep 10
-          done
-          echo "::error::Monitoring EC2 SSH port 22 never became reachable after 4 minutes"
-          exit 1
-
-      - name: Upload monitoring configs to monitoring EC2
-        uses: appleboy/scp-action@v0.1.7
-        with:
-          host: ${{ secrets.MONITOR_HOST }}
-          username: ec2-user
-          key: ${{ secrets.EC2_SSH_KEY }}
-          source: "monit/"
-          target: "/home/ec2-user/"
-          overwrite: true
-
-      - name: Start monitoring stack on monitoring EC2
-        uses: appleboy/ssh-action@v1.2.0
-        with:
-          host: ${{ secrets.MONITOR_HOST }}
-          username: ec2-user
-          key: ${{ secrets.EC2_SSH_KEY }}
-          envs: GRAFANA_ADMIN_PASSWORD,APP_PRIVATE_IP,APP_DOMAIN
-          script: |
-            set -e
-            sudo mkdir -p /opt/monit
-            sudo cp -r /home/ec2-user/monit/. /opt/monit/
-            # .env is read by Docker Compose; placeholders are substituted by the prometheus entrypoint
-            sudo tee /opt/monit/.env > /dev/null <<EOF
-            GRAFANA_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD}
-            APP_EC2_IP=${APP_PRIVATE_IP}
-            APP_DOMAIN=${APP_DOMAIN}
-            EOF
-            # Install Docker if missing
-            if ! command -v docker &>/dev/null; then
-              sudo dnf install -y docker && sudo systemctl enable --now docker
-            fi
-            if ! sudo docker compose version &>/dev/null 2>&1; then
-              curl -fsSL -o /tmp/docker-compose \
-                "https://github.com/docker/compose/releases/download/v2.27.0/docker-compose-linux-x86_64"
-              sudo mkdir -p /usr/local/lib/docker/cli-plugins
-              sudo install -m 0755 /tmp/docker-compose /usr/local/lib/docker/cli-plugins/docker-compose
-            fi
-            cd /opt/monit
-            sudo docker compose pull
-            sudo docker compose up -d --remove-orphans
-            # Reload Prometheus config to pick up any target changes
-            sleep 5
-            sudo docker compose exec -T prometheus \
-              wget -q --post-data='' http://localhost:9090/-/reload -O /dev/null \
-              && echo "Prometheus config reloaded" || echo "Reload skipped (first start)"
-        env:
-          GRAFANA_ADMIN_PASSWORD: ${{ secrets.GRAFANA_ADMIN_PASSWORD }}
-          APP_PRIVATE_IP:         ${{ needs.infra-apply.outputs.app_private_ip }}
-          APP_DOMAIN:             ${{ secrets.APP_DOMAIN }}
-
-  # ── 8. Production smoke test ──────────────────────────────────────
+  # ── 7. Production smoke test ──────────────────────────────────────
   smoke-prod:
     name: Production Smoke Test
     runs-on: ubuntu-latest
@@ -619,7 +475,7 @@ jobs:
   summary:
     name: Release Summary
     runs-on: ubuntu-latest
-    needs: [build-push, infra-apply, deploy, deploy-exporters, deploy-monitoring, smoke-prod]
+    needs: [build-push, infra-apply, deploy, smoke-prod]
     if: always()
 
     steps:
