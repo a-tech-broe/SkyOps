@@ -30,6 +30,15 @@ interface MetarStation {
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type GeoJSONData = any;
 
+function isFeatureCollection(d: unknown): d is GeoJSONData {
+  return (
+    !!d &&
+    typeof d === 'object' &&
+    (d as GeoJSONData).type === 'FeatureCollection' &&
+    Array.isArray((d as GeoJSONData).features)
+  );
+}
+
 function toBbox(map: LeafletMap): string {
   const b = map.getBounds();
   return `${b.getSouth()},${b.getWest()},${b.getNorth()},${b.getEast()}`;
@@ -56,8 +65,9 @@ export default function MapPage() {
 
   // Fetch overlays once on mount
   useEffect(() => {
-    api.map.sigmets().then(setSigmets).catch(() => {});
-    api.map.tfrs().then(setTfrs).catch(() => {});
+    api.map.sigmets().then(d => { if (isFeatureCollection(d)) setSigmets(d); }).catch(() => {});
+    api.map.tfrs().then(d => { if (isFeatureCollection(d)) setTfrs(d); }).catch(() => {});
+    return () => { if (timerRef.current) clearTimeout(timerRef.current); };
   }, []);
 
   function handleBbox(bbox: string) {
@@ -114,7 +124,7 @@ export default function MapPage() {
         {/* SIGMET / AIRMET polygons */}
         {showSigmets && sigmets && (
           <GeoJSON
-            key="sigmets"
+            key={`sigmets-${sigmets.features.length}`}
             data={sigmets}
             style={{ color: '#f97316', weight: 2, fillOpacity: 0.12 }}
           />
@@ -123,7 +133,7 @@ export default function MapPage() {
         {/* TFR polygons */}
         {showTfrs && tfrs && (
           <GeoJSON
-            key="tfrs"
+            key={`tfrs-${tfrs.features.length}`}
             data={tfrs}
             style={{ color: '#ef4444', weight: 2, fillOpacity: 0.18 }}
           />
