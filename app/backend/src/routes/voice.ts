@@ -2,7 +2,6 @@ import { Router } from 'express';
 import Anthropic from '@anthropic-ai/sdk';
 
 const router = Router();
-const anthropic = new Anthropic();
 
 type BriefType = 'weather' | 'airport' | 'route' | 'notam';
 
@@ -27,6 +26,11 @@ function buildPrompt(type: BriefType, data: unknown): string {
 
 router.post('/brief', async (req, res, next) => {
   try {
+    const apiKey = process.env.ANTHROPIC_API_KEY;
+    if (!apiKey) {
+      return res.status(503).json({ error: 'ANTHROPIC_API_KEY is not configured on the server.' });
+    }
+
     const { type, data } = req.body as { type: BriefType; data: unknown };
 
     if (!type || !data) {
@@ -35,6 +39,8 @@ router.post('/brief', async (req, res, next) => {
     if (!['weather', 'airport', 'route', 'notam'].includes(type)) {
       return res.status(400).json({ error: 'type must be weather, airport, route, or notam' });
     }
+
+    const anthropic = new Anthropic({ apiKey });
 
     const msg = await anthropic.messages.create({
       model: 'claude-haiku-4-5-20251001',
