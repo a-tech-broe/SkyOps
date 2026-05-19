@@ -8,6 +8,7 @@ import historyRouter from './routes/history';
 import windsRouter from './routes/winds';
 import mapRouter from './routes/map';
 import voiceRouter from './routes/voice';
+import obsRouter from './routes/obs';
 import authRouter from './routes/auth';
 import { requireAuth } from './middleware/requireAuth';
 import { errorHandler } from './middleware/errorHandler';
@@ -33,6 +34,7 @@ app.use('/api/history',  requireAuth, historyRouter);
 app.use('/api/winds',    requireAuth, windsRouter);
 app.use('/api/map',      requireAuth, mapRouter);
 app.use('/api/voice',    requireAuth, voiceRouter);
+app.use('/api/obs',      requireAuth, obsRouter);
 
 app.use(errorHandler);
 
