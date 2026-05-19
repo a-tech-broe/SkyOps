@@ -141,7 +141,7 @@ export default function MapPage() {
 
         {/* METAR station markers */}
         {stations.map(s => {
-          const fr    = parseMetarFlightRules(s.rawOb);
+          const fr    = parseMetarFlightRules(s.rawOb ?? '');
           const color = FR_COLOR[fr] ?? '#94a3b8';
           const ceil  = s.clouds
             ?.filter(c => ['BKN', 'OVC', 'OVX'].includes(c.cover))
@@ -162,7 +162,7 @@ export default function MapPage() {
                   <div style={{ color: '#475569', lineHeight: 1.6 }}>
                     <div>Wind: {s.wdir === 'VRB' ? 'VRB' : `${String(s.wdir).padStart(3, '0')}°`} {s.wspd}kt{s.wgst ? ` G${s.wgst}` : ''}</div>
                     <div>Vis: {s.visib} SM</div>
-                    {ceil !== Infinity && <div>Ceiling: {ceil.toLocaleString()} ft</div>}
+                    {ceil !== undefined && ceil !== Infinity && <div>Ceiling: {ceil.toLocaleString()} ft</div>}
                     <div>Temp/Dew: {s.temp}°/{s.dewp}°C</div>
                   </div>
                   <button
