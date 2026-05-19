@@ -4,6 +4,7 @@ import { api } from '../api/client';
 import MetarDisplay, { MetarData } from '../components/MetarDisplay';
 import TafDisplay, { TafData } from '../components/TafDisplay';
 import SearchInput from '../components/SearchInput';
+import VoiceButton from '../components/VoiceButton';
 
 interface Pirep {
   rawOb: string;
@@ -90,6 +91,13 @@ export default function WeatherPage() {
         <button className="btn-primary" type="submit" disabled={loading}>
           {loading ? 'Loading…' : 'Brief'}
         </button>
+        {(metar || taf) && (
+          <VoiceButton
+            type="weather"
+            data={{ icao: query, metar, taf, pireps }}
+            disabled={loading}
+          />
+        )}
       </form>
 
       {error && (

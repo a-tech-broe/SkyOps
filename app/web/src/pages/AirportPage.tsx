@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { api } from '../api/client';
 import SearchInput from '../components/SearchInput';
+import VoiceButton from '../components/VoiceButton';
 import { getSunTimes, formatUtc } from '../utils/sun';
 import { densityAltitude, parseFrequencies } from '../utils/aviation';
 
@@ -285,6 +286,22 @@ export default function AirportPage() {
         <button className="btn-primary" type="submit" disabled={loading}>
           {loading ? 'Loading…' : 'Lookup'}
         </button>
+        {airport && (
+          <VoiceButton
+            type="airport"
+            data={{
+              icaoId: airport.icaoId,
+              name: airport.name,
+              elevationFt: airport.elev,
+              flightRules,
+              metar: airport.metar,
+              longestRunwayFt: longestFt,
+              runways: airport.runways,
+              densityAltitudeFt: da,
+            }}
+            disabled={loading}
+          />
+        )}
       </form>
 
       {error && (
