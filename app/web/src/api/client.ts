@@ -73,4 +73,10 @@ export const api = {
     brief: (type: string, data: unknown) =>
       post<{ text: string }>('/voice/brief', { type, data }),
   },
+  obs: {
+    stations: (icaos: string[]) =>
+      post<Record<string, unknown>>('/obs/stations', { icaos }),
+    counts: () =>
+      get<{ sigmets: number; tfrs: number }>('/obs/counts'),
+  },
 };
