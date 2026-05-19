@@ -13,6 +13,7 @@ import CurrencyPage from './pages/CurrencyPage';
 import DispatchPage from './pages/DispatchPage';
 import MapPage from './pages/MapPage';
 import ObservabilityPage from './pages/ObservabilityPage';
+import ReplayPage from './pages/ReplayPage';
 
 const FULL_WIDTH_PATHS = ['/', '/map'];
 
@@ -53,6 +54,7 @@ function AppShell() {
           <Route path="/currency" element={<ProtectedRoute><CurrencyPage /></ProtectedRoute>} />
           <Route path="/dispatch" element={<ProtectedRoute><DispatchPage /></ProtectedRoute>} />
           <Route path="/ops"      element={<ProtectedRoute><ObservabilityPage /></ProtectedRoute>} />
+          <Route path="/replay"   element={<ProtectedRoute><ReplayPage /></ProtectedRoute>} />
         </Routes>
       </main>
     </div>

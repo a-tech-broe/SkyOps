@@ -9,6 +9,8 @@ import windsRouter from './routes/winds';
 import mapRouter from './routes/map';
 import voiceRouter from './routes/voice';
 import obsRouter from './routes/obs';
+import replayRouter from './routes/replay';
+import { startSnapshotCollector } from './services/snapshotCollector';
 import authRouter from './routes/auth';
 import { requireAuth } from './middleware/requireAuth';
 import { errorHandler } from './middleware/errorHandler';
@@ -35,9 +37,13 @@ app.use('/api/winds',    requireAuth, windsRouter);
 app.use('/api/map',      requireAuth, mapRouter);
 app.use('/api/voice',    requireAuth, voiceRouter);
 app.use('/api/obs',      requireAuth, obsRouter);
+app.use('/api/replay',   requireAuth, replayRouter);
 
 app.use(errorHandler);
 
 initDb()
-  .then(() => app.listen(PORT, () => console.log(`SkyOps API running on port ${PORT}`)))
+  .then(() => {
+    startSnapshotCollector();
+    app.listen(PORT, () => console.log(`SkyOps API running on port ${PORT}`));
+  })
   .catch((err) => { console.error('DB init failed:', err); process.exit(1); });

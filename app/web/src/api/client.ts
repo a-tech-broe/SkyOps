@@ -1,5 +1,17 @@
 import { getDeviceId } from '../utils/deviceId';
 
+export interface Snapshot {
+  captured_at:  string;
+  flight_rules: string;
+  raw_metar:    string | null;
+  wdir:         string | null;
+  wspd:         number | null;
+  wgst:         number | null;
+  visib:        string | null;
+  temp:         number | null;
+  altim:        number | null;
+}
+
 const BASE = '/api';
 
 function getToken(): string | null {
@@ -29,6 +41,10 @@ function get<T>(path: string) {
 
 function post<T>(path: string, body: unknown) {
   return request<T>(path, { method: 'POST', body: JSON.stringify(body) });
+}
+
+function del<T>(path: string) {
+  return request<T>(path, { method: 'DELETE' });
 }
 
 export const api = {
@@ -78,5 +94,15 @@ export const api = {
       post<Record<string, unknown>>('/obs/stations', { icaos }),
     counts: () =>
       get<{ sigmets: number; tfrs: number }>('/obs/counts'),
+  },
+  replay: {
+    tracked:   () =>
+      get<string[]>('/replay/tracked'),
+    track:     (icao: string) =>
+      post<{ ok: boolean }>('/replay/track', { icao }),
+    untrack:   (icao: string) =>
+      del<{ ok: boolean }>(`/replay/track/${icao}`),
+    snapshots: (icao: string, hours = 24) =>
+      get<Snapshot[]>(`/replay/${icao}?hours=${hours}`),
   },
 };
