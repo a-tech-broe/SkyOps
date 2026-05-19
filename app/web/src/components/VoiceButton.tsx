@@ -36,7 +36,8 @@ export default function VoiceButton({ type, data, disabled }: Props) {
       utt.onerror = () => setState('idle');
       setState('speaking');
       window.speechSynthesis.speak(utt);
-    } catch {
+    } catch (err) {
+      console.error('[VoiceButton]', err);
       setState('error');
       setTimeout(() => setState('idle'), 2500);
     }
