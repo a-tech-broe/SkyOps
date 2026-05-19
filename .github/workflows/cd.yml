@@ -360,7 +360,7 @@ jobs:
           host: ${{ secrets.EC2_HOST }}
           username: ec2-user
           key: ${{ secrets.EC2_SSH_KEY }}
-          envs: DOCKERHUB_USERNAME,DB_USER,DB_PASSWORD,JWT_SECRET,FAA_CLIENT_ID,FAA_CLIENT_SECRET,VITE_API_URL
+          envs: DOCKERHUB_USERNAME,DB_USER,DB_PASSWORD,JWT_SECRET,FAA_CLIENT_ID,FAA_CLIENT_SECRET,ANTHROPIC_API_KEY,VITE_API_URL
           script: |
             set -e
             # Install Docker + Compose plugin if not already present
@@ -381,6 +381,7 @@ jobs:
             JWT_SECRET=${JWT_SECRET}
             FAA_CLIENT_ID=${FAA_CLIENT_ID}
             FAA_CLIENT_SECRET=${FAA_CLIENT_SECRET}
+            ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
             VITE_API_URL=${VITE_API_URL}
             DOCKERHUB_USERNAME=${DOCKERHUB_USERNAME}
             IMAGE_TAG=latest
@@ -414,6 +415,7 @@ jobs:
                   DB_URL: postgresql://${DB_USER}:${DB_PASSWORD}@db:5432/skyops
                   FAA_CLIENT_ID: ${FAA_CLIENT_ID}
                   FAA_CLIENT_SECRET: ${FAA_CLIENT_SECRET}
+                  ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
                   JWT_SECRET: ${JWT_SECRET}
                 ports:
                   - "3001:3001"
@@ -438,6 +440,7 @@ jobs:
           JWT_SECRET:         ${{ secrets.JWT_SECRET }}
           FAA_CLIENT_ID:      ${{ secrets.FAA_CLIENT_ID }}
           FAA_CLIENT_SECRET:  ${{ secrets.FAA_CLIENT_SECRET }}
+          ANTHROPIC_API_KEY:  ${{ secrets.ANTHROPIC_API_KEY }}
           VITE_API_URL:       https://${{ secrets.APP_DOMAIN }}
 
   # ── 7. Production smoke test ──────────────────────────────────────
