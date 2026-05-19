@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { api } from '../api/client';
 import SearchInput from '../components/SearchInput';
+import VoiceButton from '../components/VoiceButton';
 import { parseMetarFlightRules, flightRulesColor } from '../utils/aviation';
 
 interface StationBrief {
@@ -110,9 +111,14 @@ export default function RouteBriefingPage() {
             </div>
           ))}
         </div>
-        <button onClick={runBriefing} disabled={loading} className="btn-primary">
-          {loading ? 'Loading…' : 'Get Briefing'}
-        </button>
+        <div className="flex gap-3 items-center">
+          <button onClick={runBriefing} disabled={loading} className="btn-primary">
+            {loading ? 'Loading…' : 'Get Briefing'}
+          </button>
+          {stations.length > 0 && (
+            <VoiceButton type="route" data={{ stations }} disabled={loading} />
+          )}
+        </div>
       </div>
 
       {error && (

@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { api } from '../api/client';
 import SearchInput from '../components/SearchInput';
+import VoiceButton from '../components/VoiceButton';
 
 interface Notam {
   properties: {
@@ -75,6 +76,13 @@ export default function NOTAMPage() {
         <button className="btn-primary" type="submit" disabled={loading}>
           {loading ? 'Loading…' : 'Fetch'}
         </button>
+        {data && data.items?.length > 0 && (
+          <VoiceButton
+            type="notam"
+            data={{ icao, items: data.items.slice(0, 20).map(item => item.properties?.coreNOTAMData?.notam) }}
+            disabled={loading}
+          />
+        )}
       </form>
 
       {error && (

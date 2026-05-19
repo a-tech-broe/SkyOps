@@ -8,6 +8,7 @@
     "start": "node dist/index.js"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.96.0",
     "bcrypt": "^6.0.0",
     "cors": "^2.8.5",
     "express": "^4.19.2",

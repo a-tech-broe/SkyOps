@@ -69,4 +69,8 @@ export const api = {
     sigmets: () => get(`/map/sigmets`),
     tfrs: () => get(`/map/tfrs`),
   },
+  voice: {
+    brief: (type: string, data: unknown) =>
+      post<{ text: string }>('/voice/brief', { type, data }),
+  },
 };
