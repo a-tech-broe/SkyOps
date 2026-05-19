@@ -12,6 +12,7 @@ interface Props {
 
 export default function VoiceButton({ type, data, disabled }: Props) {
   const [state, setState] = useState<State>('idle');
+  const [errorMsg, setErrorMsg] = useState('');
   const utterRef = useRef<SpeechSynthesisUtterance | null>(null);
 
   function stop() {
@@ -37,9 +38,11 @@ export default function VoiceButton({ type, data, disabled }: Props) {
       setState('speaking');
       window.speechSynthesis.speak(utt);
     } catch (err) {
-      console.error('[VoiceButton]', err);
+      const msg = err instanceof Error ? err.message : String(err);
+      console.error('[VoiceButton]', msg);
+      setErrorMsg(msg);
       setState('error');
-      setTimeout(() => setState('idle'), 2500);
+      setTimeout(() => { setState('idle'); setErrorMsg(''); }, 4000);
     }
   }
 
@@ -60,6 +63,7 @@ export default function VoiceButton({ type, data, disabled }: Props) {
   ].join(' ');
 
   return (
+    <span className="relative inline-flex flex-col items-start gap-1">
     <button
       type="button"
       onClick={handleClick}
@@ -88,5 +92,11 @@ export default function VoiceButton({ type, data, disabled }: Props) {
       )}
       {label}
     </button>
+    {state === 'error' && errorMsg && (
+      <span className="text-xs text-red-600 dark:text-red-400 max-w-xs leading-tight">
+        {errorMsg}
+      </span>
+    )}
+    </span>
   );
 }
