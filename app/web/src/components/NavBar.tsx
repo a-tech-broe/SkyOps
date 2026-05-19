@@ -11,6 +11,7 @@ const links = [
   { to: '/currency', label: 'Currency' },
   { to: '/dispatch', label: 'Dispatch' },
   { to: '/ops',      label: 'Ops' },
+  { to: '/replay',   label: 'Replay' },
 ];
 
 interface Props {
