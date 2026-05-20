@@ -90,11 +90,25 @@ async function ensureXml(cycle: string): Promise<{ xml: string; cycle: string }>
 
 function parseCharts(xml: string, icao: string, cycle: string): Chart[] {
   const upper = icao.toUpperCase();
+  // FAA d-TPP XML uses <airport_name> (not <airport>).
+  // ID attribute holds the local/FAA id without the K/P/A prefix (e.g. "MIA" for KMIA).
+  const localId = upper.replace(/^[KPA]/, '');
 
-  // Try icao_ident attribute first; some records only carry ID
-  let airportMatch =
-    xml.match(new RegExp(`<airport[^>]+icao_ident="${upper}"[^>]*>([\\s\\S]*?)<\\/airport>`, 'i')) ??
-    xml.match(new RegExp(`<airport[^>]*\\bID="${upper}"[^>]*>([\\s\\S]*?)<\\/airport>`, 'i'));
+  // Try all combinations: tag variant × attribute variant
+  const attempts = [
+    new RegExp(`<airport_name[^>]+icao_ident="${upper}"[^>]*>([\\s\\S]*?)<\\/airport_name>`, 'i'),
+    new RegExp(`<airport[^>]+icao_ident="${upper}"[^>]*>([\\s\\S]*?)<\\/airport>`, 'i'),
+    new RegExp(`<airport_name[^>]*\\bID="${localId}"[^>]*>([\\s\\S]*?)<\\/airport_name>`, 'i'),
+    new RegExp(`<airport[^>]*\\bID="${localId}"[^>]*>([\\s\\S]*?)<\\/airport>`, 'i'),
+    new RegExp(`<airport_name[^>]*\\bID="${upper}"[^>]*>([\\s\\S]*?)<\\/airport_name>`, 'i'),
+    new RegExp(`<airport[^>]*\\bID="${upper}"[^>]*>([\\s\\S]*?)<\\/airport>`, 'i'),
+  ];
+
+  let airportMatch: RegExpMatchArray | null = null;
+  for (const re of attempts) {
+    airportMatch = xml.match(re);
+    if (airportMatch) break;
+  }
 
   if (!airportMatch) return [];
 
@@ -125,8 +139,9 @@ export async function getAirportCharts(icao: string): Promise<{ charts: Chart[];
   const cycle = getCurrentCycle();
   const key   = `${cycle}:${upper}`;
 
-  if (chartCache.has(key)) {
-    return { charts: chartCache.get(key)!, cycle };
+  const cached = chartCache.get(key);
+  if (cached && cached.length > 0) {
+    return { charts: cached, cycle };
   }
 
   const { xml, cycle: usedCycle } = await ensureXml(cycle);
