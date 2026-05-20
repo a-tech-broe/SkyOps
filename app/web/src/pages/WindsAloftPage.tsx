@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import SearchInput from '../components/SearchInput';
+import { api } from '../api/client';
 
 interface WindLevel {
   altFt: number;
@@ -33,9 +34,7 @@ export default function WindsAloftPage() {
     setError(null);
     setData(null);
     try {
-      const res = await fetch(`/api/winds/${upper}`);
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const result: WindsData = await res.json();
+      const result = await api.winds(upper) as WindsData;
       setData(result);
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : 'Failed to load winds data');
