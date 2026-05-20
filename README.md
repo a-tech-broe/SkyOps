@@ -1,6 +1,6 @@
 # SkyOps
 
-Aviation tools for student pilots, airline crews, and flight ops/dispatch — Weather · NOTAMs · Airports · Winds · Briefing · Currency · Dispatch
+Aviation tools for student pilots, airline crews, and flight ops/dispatch — Weather · NOTAMs · Airports · Winds · Briefing · Currency · Dispatch · AI Voice · Ops Intelligence · Replay
 
 [![CI](https://github.com/a-tech-broe/SkyOps/actions/workflows/ci.yml/badge.svg)](https://github.com/a-tech-broe/SkyOps/actions/workflows/ci.yml)
 [![CD](https://github.com/a-tech-broe/SkyOps/actions/workflows/cd.yml/badge.svg)](https://github.com/a-tech-broe/SkyOps/actions/workflows/cd.yml)
@@ -13,13 +13,16 @@ Aviation tools for student pilots, airline crews, and flight ops/dispatch — We
 
 | Page | Who it's for | Summary |
 |---|---|---|
-| **Weather** | All | METAR · TAF · PIREPs · SIGMETs · AIRMETs with VFR/MVFR/IFR/LIFR color coding |
-| **NOTAMs** | All | Full text lookup via FAA API |
-| **Airports** | All | Info · runways · charts · sunrise/sunset · density altitude · frequencies · nearby alternates |
+| **Map** | All | Live weather map — METARs, SIGMETs, TFRs with VFR/IFR color coding on Leaflet |
+| **Weather** | All | METAR · TAF · PIREPs · SIGMETs · AIRMETs with VFR/MVFR/IFR/LIFR color coding · AI voice brief |
+| **NOTAMs** | All | Full text lookup via FAA API · AI voice brief |
+| **Airports** | All | Info · runways · charts · sunrise/sunset · density altitude · frequencies · nearby alternates · AI voice brief |
 | **Winds Aloft** | All | FD winds forecast table with ISA temperature deviation |
-| **Route Briefing** | GA / airlines | DEP → DEST → ALT preflight strip — METAR, TAF, NOTAM count per station |
+| **Route Briefing** | GA / airlines | DEP → DEST → ALT preflight strip — METAR, TAF, NOTAM count per station · AI voice brief |
 | **Currency** | GA / student | FAR 61 currency tracker — VFR day/night, IFR, flight review — stored on-device |
 | **Dispatch** | Airlines / ops | Multi-station weather summary table for route planning and flight release |
+| **Ops Overview** | Airlines / ops | Live route health dashboard — flight rules per station, SIGMET/TFR counts, 5-min auto-refresh |
+| **Operational Replay** | Ops / training | 15-min weather snapshot history · colored timeline bar · scrubber · playback — up to 7 days |
 | **Search history** | All | Every ICAO lookup persisted in Postgres per device; dropdown on all search inputs |
 | **Light / Dark mode** | All | Toggle in nav bar; preference persists |
 
@@ -31,6 +34,86 @@ Aviation tools for student pilots, airline crews, and flight ops/dispatch — We
 | Blue | MVFR | 1000–3000 ft | 3–5 SM |
 | Red | IFR | 500–999 ft | 1–3 SM |
 | Magenta | LIFR | < 500 ft | < 1 SM |
+
+---
+
+## AI Voice Brief
+
+Available on the Weather, NOTAMs, Airports, and Route Briefing pages. After loading data, a **Voice Brief** button appears. Clicking it:
+
+1. Sends the loaded data to the backend
+2. Claude Haiku generates a plain-English aviation briefing (60–120 words)
+3. After a 3-second pause, the browser reads it aloud using the Web Speech API
+
+The voice picker selects the most natural-sounding voice available: Google neural → Apple Samantha → any Enhanced US English voice → fallback US English.
+
+Requires `ANTHROPIC_API_KEY` to be set. Returns a `503` with a clear error message if the key is missing.
+
+---
+
+## Aviation Observability Platform (Ops Overview)
+
+> "Datadog for aviation operations" — live flight-condition monitoring for a set of route stations.
+
+The **Ops** page (`/ops`) provides a real-time health overview of any airports you care about:
+
+- Add/remove stations by ICAO — saved to `localStorage`
+- Each station shows its current flight rules badge (VFR / MVFR / IFR / LIFR), wind, visibility, ceiling, and altimeter
+- Global counters: active SIGMETs and TFRs
+- Auto-refreshes every 5 minutes with a live countdown
+- Quick links to the Map and Dispatch pages for deeper investigation
+
+---
+
+## Operational Replay Timeline
+
+> "Flight incident replay system" — scrub through historical weather conditions at any tracked airport.
+
+The **Replay** page (`/replay`) records a weather snapshot every 15 minutes for each airport you add to tracking. Data is kept for 7 days.
+
+### Controls
+
+| Control | Action |
+|---|---|
+| Airport selector | Choose from tracked airports |
+| Window buttons | 6 h · 12 h · 24 h · 48 h · 72 h lookback |
+| Play / Pause | Step through snapshots at 600 ms per frame |
+| Rewind | Jump back to the oldest snapshot in the window |
+| Timeline bar | Color-coded segments (VFR/MVFR/IFR/LIFR) — click any segment to jump |
+| Scrubber | Range slider for fine-grained navigation |
+
+### Snapshot card
+
+Each snapshot shows: flight rules badge, wind (direction/speed/gust), visibility, temperature, altimeter, and raw METAR string.
+
+### Tracking management
+
+Add any ICAO to the tracked list from the bottom panel. The first snapshot appears within 15 minutes. The background collector runs automatically at backend startup.
+
+### Database schema
+
+```sql
+CREATE TABLE tracked_airports (
+  icao     TEXT PRIMARY KEY,
+  added_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE TABLE obs_snapshots (
+  id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  icao         TEXT NOT NULL,
+  captured_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  flight_rules TEXT NOT NULL,
+  raw_metar    TEXT,
+  wdir         TEXT,
+  wspd         SMALLINT,
+  wgst         SMALLINT,
+  visib        TEXT,
+  temp         NUMERIC(5,1),
+  altim        NUMERIC(6,2)
+);
+
+CREATE INDEX obs_snapshots_icao_time ON obs_snapshots (icao, captured_at DESC);
+```
 
 ---
 
@@ -130,7 +213,7 @@ Enter a departure, destination, and optional alternate ICAO to generate a prefli
 - Full TAF (pre-formatted)
 - NOTAM count badge
 
-Data for all stations is fetched in parallel. Useful as a quick "one-page" preflight awareness check before pulling a full ATC briefing.
+Data for all stations is fetched in parallel. A **Voice Brief** button summarizes the entire route in plain English via Claude AI. Useful as a quick "one-page" preflight awareness check before pulling a full ATC briefing.
 
 ---
 
@@ -258,6 +341,8 @@ SkyOps/
 | Web | React 18 + Vite + Tailwind CSS (dark mode via class strategy) |
 | Mobile | Expo (React Native) + Expo Router — custom horizontal pager, fully responsive (phone · tablet · landscape) |
 | API | Node.js 22 + Express + TypeScript |
+| AI | Anthropic Claude Haiku — AI voice brief generation across weather, NOTAMs, airports, route briefing |
+| Voice | Web Speech API — browser-native TTS with smart voice picker (Google neural → Apple Samantha → Enhanced) |
 | Database | PostgreSQL 16 |
 | Containers | Docker + Docker Compose |
 | Infra | Terraform → AWS (EC2, ALB, ACM, IAM) |
@@ -271,7 +356,7 @@ SkyOps/
 ```bash
 # Copy and fill in your env vars
 cp .env .env.local           # or create app/.env from scratch
-# Required: FAA_CLIENT_ID, FAA_CLIENT_SECRET, DB_USER, DB_PASSWORD
+# Required: FAA_CLIENT_ID, FAA_CLIENT_SECRET, DB_USER, DB_PASSWORD, ANTHROPIC_API_KEY
 
 docker compose -f app/docker-compose.dev.yml up --build
 ```
@@ -285,7 +370,7 @@ docker compose -f app/docker-compose.dev.yml up --build
 ### Production (build from source)
 
 ```bash
-# Required: DB_PASSWORD, FAA_CLIENT_ID, FAA_CLIENT_SECRET
+# Required: DB_PASSWORD, FAA_CLIENT_ID, FAA_CLIENT_SECRET, ANTHROPIC_API_KEY
 docker compose -f app/docker-compose.yml up --build -d
 ```
 
@@ -300,6 +385,7 @@ docker compose -f app/docker-compose.yml up --build -d
 | `JWT_SECRET` | Yes | Secret used to sign auth tokens — set a long random string in production |
 | `FAA_CLIENT_ID` | Yes (NOTAMs) | FAA API client ID — register at [api.faa.gov](https://api.faa.gov/) |
 | `FAA_CLIENT_SECRET` | Yes (NOTAMs) | FAA API client secret |
+| `ANTHROPIC_API_KEY` | Yes (AI Voice) | Anthropic API key for Claude Haiku — get at [console.anthropic.com](https://console.anthropic.com/) |
 | `EXPO_PUBLIC_API_URL` | Yes | Backend URL for mobile |
 
 ---
@@ -342,6 +428,7 @@ Runs all security gates, then:
 | `FAA_CLIENT_ID` | CD — written to app EC2 `.env` |
 | `FAA_CLIENT_SECRET` | CD — written to app EC2 `.env` |
 | `JWT_SECRET` | CD — written to app EC2 `.env`; signs auth tokens |
+| `ANTHROPIC_API_KEY` | CD — written to app EC2 `.env`; required for AI voice brief |
 | `APP_DOMAIN` | CD — ACM cert domain + smoke tests (e.g. `skyops.example.com`) |
 | `HOSTED_ZONE_ID` | CI/CD — Route53 hosted zone ID for auto DNS validation + A records (optional) |
 | `AWS_ACCESS_KEY_ID` | CI infra plan + CD infra apply |
@@ -427,6 +514,7 @@ terraform apply  # provision
 | [AviationWeather.gov](https://aviationweather.gov/data/api/) | None | METAR, TAF, PIREPs, SIGMETs, AIRMETs, airports (global), winds aloft FD text |
 | [FAA NOTAM API](https://api.faa.gov/) | Client credentials | NOTAMs (US airspace only) |
 | [FAA d-TPP](https://aeronav.faa.gov/d-tpp/) | None | Approach plates, airport diagrams, SIDs, STARs (US only, updated each AIRAC cycle) |
+| [Anthropic Claude](https://console.anthropic.com/) | API key | AI-generated plain-English aviation briefings (Claude Haiku) |
 
 ### Backend API Endpoints
 
@@ -443,4 +531,11 @@ terraform apply  # provision
 | `GET` | `/api/winds/:icao` | Parsed FD winds aloft for station |
 | `GET` | `/api/history?deviceId=&type=` | Recent ICAO searches for device |
 | `POST` | `/api/history` | Record a search event |
+| `POST` | `/api/voice/brief` | Generate AI plain-English briefing via Claude Haiku |
+| `POST` | `/api/obs/stations` | Batch METAR fetch for array of ICAOs (max 30) |
+| `GET` | `/api/obs/counts` | Active SIGMET and TFR counts |
+| `GET` | `/api/replay/tracked` | List tracked airports |
+| `POST` | `/api/replay/track` | Add airport to snapshot tracking |
+| `DELETE` | `/api/replay/track/:icao` | Remove airport from tracking |
+| `GET` | `/api/replay/:icao?hours=N` | Weather snapshots for last N hours (max 168) |
 | `GET` | `/health` | Health check |

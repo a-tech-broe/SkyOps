@@ -3,6 +3,8 @@ import { useNavigate } from 'react-router-dom';
 import { api } from '../api/client';
 import { parseMetarFlightRules } from '../utils/aviation';
 
+type Panel = 'ifr' | null;
+
 interface Route { dep: string; dest: string; }
 
 interface MetarSnap {
@@ -55,6 +57,9 @@ export default function ObservabilityPage() {
   const [addDep,      setAddDep]      = useState('');
   const [addDest,     setAddDest]     = useState('');
   const [addError,    setAddError]    = useState('');
+
+  const [activePanel, setActivePanel] = useState<Panel>(null);
+  const routeTableRef = useRef<HTMLDivElement>(null);
 
   const routesRef = useRef(routes);
   routesRef.current = routes;
@@ -164,38 +169,100 @@ export default function ObservabilityPage() {
 
       {/* ── Stats row ──────────────────────────────────────────────── */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-        {[
-          {
-            label: 'Tracked Routes',
-            value: routes.length,
-            color: 'text-blue-600 dark:text-blue-400',
-          },
-          {
-            label: 'IFR / LIFR Airports',
-            value: ifrCount,
-            color: ifrCount > 0 ? 'text-red-600 dark:text-red-400' : 'text-green-600 dark:text-green-400',
-          },
-          {
-            label: 'Active SIGMETs',
-            value: counts.sigmets,
-            color: counts.sigmets > 0 ? 'text-orange-500 dark:text-orange-400' : 'text-slate-400',
-          },
-          {
-            label: 'Active TFRs',
-            value: counts.tfrs,
-            color: counts.tfrs > 0 ? 'text-red-600 dark:text-red-400' : 'text-slate-400',
-          },
-        ].map(({ label, value, color }) => (
-          <div key={label} className="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 px-4 py-3">
-            <p className="text-xs text-slate-500 dark:text-slate-400 font-medium uppercase tracking-wide">{label}</p>
-            <p className={`text-2xl font-bold mt-1 tabular-nums ${color}`}>{value}</p>
-          </div>
-        ))}
+        {/* Tracked Routes — scrolls to route table */}
+        <button
+          onClick={() => routeTableRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
+          className="text-left bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 px-4 py-3 hover:border-blue-400 dark:hover:border-blue-500 hover:shadow-sm transition-all group cursor-pointer"
+        >
+          <p className="text-xs text-slate-500 dark:text-slate-400 font-medium uppercase tracking-wide group-hover:text-blue-500 transition-colors">Tracked Routes</p>
+          <p className="text-2xl font-bold mt-1 tabular-nums text-blue-600 dark:text-blue-400">{routes.length}</p>
+          <p className="text-[10px] text-slate-400 dark:text-slate-500 mt-0.5">view list ↓</p>
+        </button>
+
+        {/* IFR / LIFR Airports — toggles inline panel */}
+        <button
+          onClick={() => setActivePanel(p => p === 'ifr' ? null : 'ifr')}
+          className={`text-left bg-white dark:bg-slate-800 rounded-xl border px-4 py-3 hover:shadow-sm transition-all group cursor-pointer ${
+            activePanel === 'ifr'
+              ? 'border-red-400 dark:border-red-600 ring-2 ring-red-200 dark:ring-red-900'
+              : 'border-slate-200 dark:border-slate-700 hover:border-red-300 dark:hover:border-red-700'
+          }`}
+        >
+          <p className="text-xs text-slate-500 dark:text-slate-400 font-medium uppercase tracking-wide group-hover:text-red-500 transition-colors">IFR / LIFR Airports</p>
+          <p className={`text-2xl font-bold mt-1 tabular-nums ${ifrCount > 0 ? 'text-red-600 dark:text-red-400' : 'text-green-600 dark:text-green-400'}`}>{ifrCount}</p>
+          <p className="text-[10px] text-slate-400 dark:text-slate-500 mt-0.5">{activePanel === 'ifr' ? 'collapse ↑' : 'view list ↓'}</p>
+        </button>
+
+        {/* Active SIGMETs — navigates to map */}
+        <button
+          onClick={() => navigate('/map')}
+          className="text-left bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 px-4 py-3 hover:border-orange-400 dark:hover:border-orange-500 hover:shadow-sm transition-all group cursor-pointer"
+        >
+          <p className="text-xs text-slate-500 dark:text-slate-400 font-medium uppercase tracking-wide group-hover:text-orange-500 transition-colors">Active SIGMETs</p>
+          <p className={`text-2xl font-bold mt-1 tabular-nums ${counts.sigmets > 0 ? 'text-orange-500 dark:text-orange-400' : 'text-slate-400'}`}>{counts.sigmets}</p>
+          <p className="text-[10px] text-slate-400 dark:text-slate-500 mt-0.5">view on map →</p>
+        </button>
+
+        {/* Active TFRs — navigates to map */}
+        <button
+          onClick={() => navigate('/map')}
+          className="text-left bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 px-4 py-3 hover:border-red-300 dark:hover:border-red-700 hover:shadow-sm transition-all group cursor-pointer"
+        >
+          <p className="text-xs text-slate-500 dark:text-slate-400 font-medium uppercase tracking-wide group-hover:text-red-500 transition-colors">Active TFRs</p>
+          <p className={`text-2xl font-bold mt-1 tabular-nums ${counts.tfrs > 0 ? 'text-red-600 dark:text-red-400' : 'text-slate-400'}`}>{counts.tfrs}</p>
+          <p className="text-[10px] text-slate-400 dark:text-slate-500 mt-0.5">view on map →</p>
+        </button>
       </div>
+
+      {/* ── IFR/LIFR airports panel ────────────────────────────────── */}
+      {activePanel === 'ifr' && (
+        <div className="bg-white dark:bg-slate-800 rounded-xl border border-red-200 dark:border-red-800 overflow-hidden">
+          <div className="px-4 py-3 border-b border-red-100 dark:border-red-900 flex items-center justify-between">
+            <h2 className="font-semibold text-red-700 dark:text-red-300 text-sm">IFR / LIFR Airports</h2>
+            <button onClick={() => setActivePanel(null)} className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 text-lg leading-none">✕</button>
+          </div>
+          {ifrCount === 0 ? (
+            <p className="px-4 py-6 text-center text-sm text-slate-500 dark:text-slate-400">
+              All tracked airports are currently VFR or MVFR.
+            </p>
+          ) : (
+            <div className="divide-y divide-red-50 dark:divide-red-900/50">
+              {allIcaos
+                .filter(ic => { const fr = getFR(ic); return fr === 'IFR' || fr === 'LIFR'; })
+                .map(ic => {
+                  const fr   = getFR(ic);
+                  const snap = snapshots[ic];
+                  const inRoutes = routes.filter(r => r.dep === ic || r.dest === ic);
+                  return (
+                    <div key={ic} className="px-4 py-3 flex items-center gap-3 flex-wrap">
+                      <span className={`text-sm font-bold px-2.5 py-0.5 rounded font-mono ${FR_BADGE[fr]}`}>{ic}</span>
+                      <span className={`text-xs font-semibold px-2 py-0.5 rounded border ${
+                        fr === 'LIFR'
+                          ? 'border-fuchsia-300 dark:border-fuchsia-700 text-fuchsia-700 dark:text-fuchsia-300'
+                          : 'border-red-300 dark:border-red-700 text-red-700 dark:text-red-300'
+                      }`}>{fr}</span>
+                      {snap?.rawOb && (
+                        <span className="text-xs text-slate-500 dark:text-slate-400 font-mono">
+                          {snap.wdir === 'VRB' ? 'VRB' : `${String(snap.wdir).padStart(3,'0')}°`}{' '}
+                          {snap.wspd}kt{snap.wgst ? ` G${snap.wgst}kt` : ''}{' · '}
+                          {snap.visib} SM
+                        </span>
+                      )}
+                      <span className="ml-auto text-xs text-slate-400 dark:text-slate-500">
+                        {inRoutes.map(r => `${r.dep}→${r.dest}`).join(', ')}
+                      </span>
+                    </div>
+                  );
+                })
+              }
+            </div>
+          )}
+        </div>
+      )}
 
       {/* ── Route health table ─────────────────────────────────────── */}
       {routes.length > 0 ? (
-        <div className="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 overflow-hidden">
+        <div ref={routeTableRef} className="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 overflow-hidden scroll-mt-6">
           <div className="px-4 py-3 border-b border-slate-100 dark:border-slate-700 flex items-center justify-between">
             <h2 className="font-semibold text-slate-800 dark:text-slate-100">Route Health</h2>
             <span className="text-xs text-slate-400">click row for full briefing</span>
@@ -279,7 +346,7 @@ export default function ObservabilityPage() {
           </div>
         </div>
       ) : (
-        <div className="bg-slate-50 dark:bg-slate-800/50 rounded-xl border border-dashed border-slate-200 dark:border-slate-700 px-6 py-10 text-center">
+        <div ref={routeTableRef} className="bg-slate-50 dark:bg-slate-800/50 rounded-xl border border-dashed border-slate-200 dark:border-slate-700 px-6 py-10 text-center scroll-mt-6">
           <p className="text-slate-500 dark:text-slate-400 text-sm">
             No routes tracked yet — add one below to start monitoring.
           </p>
