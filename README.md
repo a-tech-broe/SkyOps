@@ -63,6 +63,17 @@ The **Ops** page (`/ops`) provides a real-time health overview of any airports y
 - Auto-refreshes every 5 minutes with a live countdown
 - Quick links to the Map and Dispatch pages for deeper investigation
 
+### Interactive stat tiles
+
+Each of the four summary cards at the top is clickable:
+
+| Tile | Action |
+|---|---|
+| **Tracked Routes** | Smooth-scrolls to the Route Health table below |
+| **IFR / LIFR Airports** | Expands an inline panel listing every IFR or LIFR airport across all tracked routes with its FR badge, wind, visibility, and which routes it belongs to. Click again or ✕ to dismiss. |
+| **Active SIGMETs** | Navigates to the Weather Map (`/map`) where the SIGMET GeoJSON layer is rendered |
+| **Active TFRs** | Navigates to the Weather Map (`/map`) where the TFR GeoJSON layer is rendered |
+
 ---
 
 ## Operational Replay Timeline
