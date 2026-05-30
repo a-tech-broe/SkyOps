@@ -1,6 +1,7 @@
 import { FormEvent, useState } from 'react';
 import { Navigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
+import { api } from '../api/client';
 
 const FEATURES = [
   { icon: '🌦', title: 'Live Weather', desc: 'METAR · TAF · PIREPs · SIGMETs · AIRMETs with VFR/MVFR/IFR/LIFR colour coding' },
@@ -11,7 +12,7 @@ const FEATURES = [
   { icon: '📝', title: 'Currency Tracker', desc: 'FAR 61 day/night/IFR/flight-review currency stored privately on your device' },
 ];
 
-type Mode = 'register' | 'login';
+type Mode = 'register' | 'login' | 'forgot';
 
 export default function LandingPage() {
   const { user, loading, register, login } = useAuth();
@@ -22,12 +23,26 @@ export default function LandingPage() {
   const [confirm, setConfirm] = useState('');
   const [error, setError] = useState('');
   const [submitting, setSubmitting] = useState(false);
+  const [forgotSent, setForgotSent] = useState(false);
 
   if (!loading && user) return <Navigate to="/weather" replace />;
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
     setError('');
+
+    if (mode === 'forgot') {
+      setSubmitting(true);
+      try {
+        await api.auth.forgotPassword(email);
+        setForgotSent(true);
+      } catch (err) {
+        setError(err instanceof Error ? err.message : 'Something went wrong');
+      } finally {
+        setSubmitting(false);
+      }
+      return;
+    }
 
     if (mode === 'register' && password !== confirm) {
       setError('Passwords do not match');
@@ -65,10 +80,10 @@ export default function LandingPage() {
           <span className="text-slate-500 text-xs ml-1">by ATechBroe</span>
         </div>
         <button
-          onClick={() => { setMode(m => m === 'login' ? 'register' : 'login'); setError(''); }}
+          onClick={() => { setMode(m => (m === 'login' || m === 'forgot') ? 'register' : 'login'); setError(''); setForgotSent(false); }}
           className="text-sm text-slate-400 hover:text-slate-100 transition-colors"
         >
-          {mode === 'login' ? 'Create account' : 'Log in'}
+          {mode === 'register' ? 'Log in' : 'Create account'}
         </button>
       </header>
 
@@ -109,84 +124,151 @@ export default function LandingPage() {
         <div className="w-full lg:w-96 flex-shrink-0">
           <div className="bg-slate-900 border border-slate-800 rounded-2xl p-8 sticky top-8">
 
-            {/* Tab toggle */}
-            <div className="flex rounded-lg bg-slate-800 p-1 mb-6">
-              {(['register', 'login'] as Mode[]).map(m => (
-                <button
-                  key={m}
-                  onClick={() => { setMode(m); setError(''); }}
-                  className={`flex-1 py-1.5 text-sm font-medium rounded-md transition-colors ${
-                    mode === m
-                      ? 'bg-blue-600 text-white shadow'
-                      : 'text-slate-400 hover:text-slate-200'
-                  }`}
-                >
-                  {m === 'register' ? 'Create account' : 'Log in'}
-                </button>
-              ))}
-            </div>
-
-            <form onSubmit={handleSubmit} className="flex flex-col gap-4">
-              <div>
-                <label className="block text-xs font-medium text-slate-400 mb-1">Email</label>
-                <input
-                  type="email"
-                  value={email}
-                  onChange={e => setEmail(e.target.value)}
-                  required
-                  placeholder="you@example.com"
-                  className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2.5 text-sm text-slate-100 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                />
+            {/* Tab toggle — hidden in forgot mode */}
+            {mode !== 'forgot' && (
+              <div className="flex rounded-lg bg-slate-800 p-1 mb-6">
+                {(['register', 'login'] as const).map(m => (
+                  <button
+                    key={m}
+                    onClick={() => { setMode(m); setError(''); }}
+                    className={`flex-1 py-1.5 text-sm font-medium rounded-md transition-colors ${
+                      mode === m
+                        ? 'bg-blue-600 text-white shadow'
+                        : 'text-slate-400 hover:text-slate-200'
+                    }`}
+                  >
+                    {m === 'register' ? 'Create account' : 'Log in'}
+                  </button>
+                ))}
               </div>
+            )}
 
-              <div>
-                <label className="block text-xs font-medium text-slate-400 mb-1">Password</label>
-                <input
-                  type="password"
-                  value={password}
-                  onChange={e => setPassword(e.target.value)}
-                  required
-                  minLength={8}
-                  placeholder="Min. 8 characters"
-                  className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2.5 text-sm text-slate-100 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                />
-              </div>
-
-              {mode === 'register' && (
-                <div>
-                  <label className="block text-xs font-medium text-slate-400 mb-1">Confirm password</label>
-                  <input
-                    type="password"
-                    value={confirm}
-                    onChange={e => setConfirm(e.target.value)}
-                    required
-                    placeholder="Repeat password"
-                    className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2.5 text-sm text-slate-100 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  />
+            {mode === 'forgot' ? (
+              forgotSent ? (
+                <div className="flex flex-col gap-4">
+                  <div className="bg-green-950 border border-green-800 rounded-lg px-4 py-3">
+                    <p className="text-green-400 text-sm font-medium">Check your email for a reset link.</p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => { setMode('login'); setForgotSent(false); setError(''); }}
+                    className="text-xs text-slate-500 hover:text-blue-400 transition-colors text-left"
+                  >
+                    ← Back to log in
+                  </button>
                 </div>
-              )}
+              ) : (
+                <form onSubmit={handleSubmit} className="flex flex-col gap-4">
+                  <div>
+                    <label className="block text-xs font-medium text-slate-400 mb-1">Email</label>
+                    <input
+                      type="email"
+                      value={email}
+                      onChange={e => setEmail(e.target.value)}
+                      required
+                      placeholder="you@example.com"
+                      className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2.5 text-sm text-slate-100 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    />
+                  </div>
 
-              {error && (
-                <p className="text-red-400 text-xs bg-red-950 border border-red-900 rounded-lg px-3 py-2">
-                  {error}
-                </p>
-              )}
+                  {error && (
+                    <p className="text-red-400 text-xs bg-red-950 border border-red-900 rounded-lg px-3 py-2">
+                      {error}
+                    </p>
+                  )}
 
-              <button
-                type="submit"
-                disabled={submitting}
-                className="w-full bg-blue-600 hover:bg-blue-500 disabled:bg-blue-800 disabled:cursor-not-allowed text-white font-semibold py-2.5 rounded-lg text-sm transition-colors mt-1"
-              >
-                {submitting
-                  ? 'Please wait…'
-                  : mode === 'register' ? 'Create free account' : 'Log in'}
-              </button>
-            </form>
+                  <button
+                    type="submit"
+                    disabled={submitting}
+                    className="w-full bg-blue-600 hover:bg-blue-500 disabled:bg-blue-800 disabled:cursor-not-allowed text-white font-semibold py-2.5 rounded-lg text-sm transition-colors mt-1"
+                  >
+                    {submitting ? 'Please wait…' : 'Send reset link'}
+                  </button>
 
-            {mode === 'register' && (
-              <p className="text-xs text-slate-500 text-center mt-4">
-                No credit card required. Always free.
-              </p>
+                  <button
+                    type="button"
+                    onClick={() => { setMode('login'); setError(''); }}
+                    className="text-xs text-slate-500 hover:text-blue-400 transition-colors text-left"
+                  >
+                    ← Back to log in
+                  </button>
+                </form>
+              )
+            ) : (
+              <>
+                <form onSubmit={handleSubmit} className="flex flex-col gap-4">
+                  <div>
+                    <label className="block text-xs font-medium text-slate-400 mb-1">Email</label>
+                    <input
+                      type="email"
+                      value={email}
+                      onChange={e => setEmail(e.target.value)}
+                      required
+                      placeholder="you@example.com"
+                      className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2.5 text-sm text-slate-100 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-medium text-slate-400 mb-1">Password</label>
+                    <input
+                      type="password"
+                      value={password}
+                      onChange={e => setPassword(e.target.value)}
+                      required
+                      minLength={8}
+                      placeholder="Min. 8 characters"
+                      className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2.5 text-sm text-slate-100 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    />
+                  </div>
+
+                  {mode === 'login' && (
+                    <button
+                      type="button"
+                      onClick={() => { setMode('forgot'); setError(''); }}
+                      className="text-xs text-slate-500 hover:text-blue-400 transition-colors text-left"
+                    >
+                      Forgot password?
+                    </button>
+                  )}
+
+                  {mode === 'register' && (
+                    <div>
+                      <label className="block text-xs font-medium text-slate-400 mb-1">Confirm password</label>
+                      <input
+                        type="password"
+                        value={confirm}
+                        onChange={e => setConfirm(e.target.value)}
+                        required
+                        placeholder="Repeat password"
+                        className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2.5 text-sm text-slate-100 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      />
+                    </div>
+                  )}
+
+                  {error && (
+                    <p className="text-red-400 text-xs bg-red-950 border border-red-900 rounded-lg px-3 py-2">
+                      {error}
+                    </p>
+                  )}
+
+                  <button
+                    type="submit"
+                    disabled={submitting}
+                    className="w-full bg-blue-600 hover:bg-blue-500 disabled:bg-blue-800 disabled:cursor-not-allowed text-white font-semibold py-2.5 rounded-lg text-sm transition-colors mt-1"
+                  >
+                    {submitting
+                      ? 'Please wait…'
+                      : mode === 'register' ? 'Create free account' : 'Log in'}
+                  </button>
+                </form>
+
+                {mode === 'register' && (
+                  <p className="text-xs text-slate-500 text-center mt-4">
+                    No credit card required. Always free.
+                  </p>
+                )}
+              </>
             )}
           </div>
         </div>

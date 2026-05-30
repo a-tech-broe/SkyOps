@@ -12,6 +12,7 @@ import CurrencyPage from './pages/CurrencyPage';
 import DispatchPage from './pages/DispatchPage';
 import MapPage from './pages/MapPage';
 import ObservabilityPage from './pages/ObservabilityPage';
+import ResetPasswordPage from './pages/ResetPasswordPage';
 
 const FULL_WIDTH_PATHS = ['/', '/map'];
 
@@ -43,6 +44,7 @@ function AppShell() {
       }>
         <Routes>
           <Route path="/" element={<LandingPage />} />
+          <Route path="/reset-password" element={<ResetPasswordPage />} />
           <Route path="/map"      element={<ProtectedRoute><MapPage /></ProtectedRoute>} />
           <Route path="/weather"  element={<ProtectedRoute><WeatherPage /></ProtectedRoute>} />
           <Route path="/airports" element={<ProtectedRoute><AirportPage /></ProtectedRoute>} />
