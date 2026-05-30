@@ -15,7 +15,7 @@ export interface Snapshot {
 const BASE = '/api';
 
 function getToken(): string | null {
-  return localStorage.getItem('skyops_token');
+  return localStorage.getItem('skybroe_token');
 }
 
 async function request<T>(path: string, init: RequestInit = {}): Promise<T> {

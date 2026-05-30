@@ -35,7 +35,7 @@ function worstFR(a: string, b: string): string {
 }
 
 const REFRESH_SECS = 300;
-const STORAGE_KEY  = 'skyops_obs_routes';
+const STORAGE_KEY  = 'skybroe_obs_routes';
 
 function loadRoutes(): Route[] {
   try {

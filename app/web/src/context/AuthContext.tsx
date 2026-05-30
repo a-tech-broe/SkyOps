@@ -22,29 +22,29 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   // Restore session on mount
   useEffect(() => {
-    const token = localStorage.getItem('skyops_token');
+    const token = localStorage.getItem('skybroe_token');
     if (!token) { setLoading(false); return; }
 
     api.auth.me()
       .then(({ user }) => setUser(user))
-      .catch(() => localStorage.removeItem('skyops_token'))
+      .catch(() => localStorage.removeItem('skybroe_token'))
       .finally(() => setLoading(false));
   }, []);
 
   async function register(email: string, password: string) {
     const { token, user } = await api.auth.register(email, password);
-    localStorage.setItem('skyops_token', token);
+    localStorage.setItem('skybroe_token', token);
     setUser(user);
   }
 
   async function login(email: string, password: string) {
     const { token, user } = await api.auth.login(email, password);
-    localStorage.setItem('skyops_token', token);
+    localStorage.setItem('skybroe_token', token);
     setUser(user);
   }
 
   function logout() {
-    localStorage.removeItem('skyops_token');
+    localStorage.removeItem('skybroe_token');
     setUser(null);
   }
 

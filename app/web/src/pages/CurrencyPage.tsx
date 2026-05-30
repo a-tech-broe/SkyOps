@@ -10,8 +10,8 @@ interface FlightLog {
   holding: boolean;
 }
 
-const STORAGE_KEY = 'skyops_flight_log';
-const REVIEW_KEY = 'skyops_flight_review';
+const STORAGE_KEY = 'skybroe_flight_log';
+const REVIEW_KEY = 'skybroe_flight_review';
 
 function loadLogs(): FlightLog[] {
   try {

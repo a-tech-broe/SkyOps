@@ -107,7 +107,7 @@ export default function NavBar({ dark, onToggle }: Props) {
         {/* Logo */}
         <div className="flex flex-col leading-tight flex-shrink-0">
           <span className="text-blue-500 dark:text-blue-400 font-bold text-lg tracking-tight">
-            ✈ SkyOps
+            ✈ SkyBroe
           </span>
           <span className="text-slate-400 dark:text-slate-500 text-[10px] tracking-wide">
             powered by atechbroe
