@@ -1,16 +1,24 @@
-import { NavLink, useNavigate } from 'react-router-dom';
+import { NavLink, useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 
-const links = [
-  { to: '/map',      label: 'Map'      },
-  { to: '/weather',  label: 'Weather'  },
-  { to: '/airports', label: 'Airports' },
-  { to: '/winds',    label: 'Winds'    },
+const airportsDropdownLinks = [
+  { to: '/map',      label: 'Map'     },
+  { to: '/weather',  label: 'Weather' },
+  { to: '/winds',    label: 'Winds'   },
+];
+
+const opsDropdownLinks = [
   { to: '/route',    label: 'Briefing' },
   { to: '/currency', label: 'Currency' },
   { to: '/dispatch', label: 'Dispatch' },
-  { to: '/ops',      label: 'Ops'      },
 ];
+
+const AIRPORTS_PATHS = new Set(['/airports', '/map', '/weather', '/winds']);
+const OPS_PATHS      = new Set(['/ops', '/route', '/currency', '/dispatch']);
+
+const NAV_ITEM = 'px-3 py-1.5 rounded-lg text-sm font-medium transition-colors whitespace-nowrap';
+const NAV_ACTIVE = 'bg-blue-600 text-white';
+const NAV_IDLE = 'text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100 hover:bg-slate-100 dark:hover:bg-slate-800';
 
 interface Props {
   dark: boolean;
@@ -20,6 +28,10 @@ interface Props {
 export default function NavBar({ dark, onToggle }: Props) {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
+
+  const airportsActive = AIRPORTS_PATHS.has(location.pathname);
+  const opsActive      = OPS_PATHS.has(location.pathname);
 
   function handleLogout() {
     logout();
@@ -42,22 +54,74 @@ export default function NavBar({ dark, onToggle }: Props) {
 
         {/* Nav links — only shown when logged in */}
         {user && (
-          <div className="flex gap-1 flex-1 overflow-x-auto">
-            {links.map(({ to, label }) => (
+          <div className="flex gap-1 flex-1 overflow-x-auto items-center">
+
+            {/* Airports dropdown */}
+            <div className="relative group">
               <NavLink
-                key={to}
-                to={to}
-                className={({ isActive }) =>
-                  `px-3 py-1.5 rounded-lg text-sm font-medium transition-colors whitespace-nowrap ${
-                    isActive
-                      ? 'bg-blue-600 text-white'
-                      : 'text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100 hover:bg-slate-100 dark:hover:bg-slate-800'
-                  }`
-                }
+                to="/airports"
+                className={`${NAV_ITEM} inline-flex items-center gap-1 ${airportsActive ? NAV_ACTIVE : NAV_IDLE}`}
               >
-                {label}
+                Airports
+                <svg className="w-3 h-3 opacity-60" viewBox="0 0 12 12" fill="currentColor">
+                  <path d="M6 8L1 3h10z"/>
+                </svg>
               </NavLink>
-            ))}
+
+              {/* Dropdown panel */}
+              <div className="absolute top-full left-0 pt-1 hidden group-hover:block z-50">
+                <div className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl shadow-lg overflow-hidden min-w-[130px]">
+                  {airportsDropdownLinks.map(({ to, label }) => (
+                    <NavLink
+                      key={to}
+                      to={to}
+                      className={({ isActive }) =>
+                        `block px-4 py-2 text-sm font-medium transition-colors ${
+                          isActive
+                            ? 'bg-blue-50 dark:bg-blue-950 text-blue-600 dark:text-blue-400'
+                            : 'text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700 hover:text-slate-900 dark:hover:text-slate-100'
+                        }`
+                      }
+                    >
+                      {label}
+                    </NavLink>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            {/* Ops dropdown */}
+            <div className="relative group">
+              <NavLink
+                to="/ops"
+                className={`${NAV_ITEM} inline-flex items-center gap-1 ${opsActive ? NAV_ACTIVE : NAV_IDLE}`}
+              >
+                Ops
+                <svg className="w-3 h-3 opacity-60" viewBox="0 0 12 12" fill="currentColor">
+                  <path d="M6 8L1 3h10z"/>
+                </svg>
+              </NavLink>
+
+              <div className="absolute top-full left-0 pt-1 hidden group-hover:block z-50">
+                <div className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl shadow-lg overflow-hidden min-w-[130px]">
+                  {opsDropdownLinks.map(({ to, label }) => (
+                    <NavLink
+                      key={to}
+                      to={to}
+                      className={({ isActive }) =>
+                        `block px-4 py-2 text-sm font-medium transition-colors ${
+                          isActive
+                            ? 'bg-blue-50 dark:bg-blue-950 text-blue-600 dark:text-blue-400'
+                            : 'text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700 hover:text-slate-900 dark:hover:text-slate-100'
+                        }`
+                      }
+                    >
+                      {label}
+                    </NavLink>
+                  ))}
+                </div>
+              </div>
+            </div>
           </div>
         )}
 
