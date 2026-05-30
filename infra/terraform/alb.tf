@@ -132,7 +132,13 @@ resource "aws_lb" "skyops" {
   security_groups    = [aws_security_group.alb.id]
   subnets            = data.aws_subnets.default.ids
 
-  tags = { Name = "skyops-alb" }
+  access_logs {
+    bucket  = aws_s3_bucket.alb_logs.id
+    enabled = true
+  }
+
+  tags       = { Name = "skyops-alb" }
+  depends_on = [aws_s3_bucket_policy.alb_logs]
 }
 
 # ── HTTP → HTTPS redirect ─────────────────────────────────────────

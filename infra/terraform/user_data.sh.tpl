@@ -17,20 +17,20 @@ dnf install -y docker-compose-plugin || {
 }
 
 # ── App directory ─────────────────────────────────────────────────
-mkdir -p /opt/skyops
-chown ec2-user:ec2-user /opt/skyops
+mkdir -p /opt/skybroe
+chown ec2-user:ec2-user /opt/skybroe
 
 # ── docker-compose.prod.yml ───────────────────────────────────────
 # Written here so the instance is self-contained.
-# The deploy workflow writes /opt/skyops/.env before running compose.
+# The deploy workflow writes /opt/skybroe/.env before running compose.
 # $${VAR} renders to $${VAR} after Terraform; Docker Compose substitutes from .env.
-cat > /opt/skyops/docker-compose.prod.yml <<'COMPOSE'
+cat > /opt/skybroe/docker-compose.prod.yml <<'COMPOSE'
 services:
   db:
     image: postgres:16-alpine
     restart: unless-stopped
     environment:
-      POSTGRES_DB: skyops
+      POSTGRES_DB: skybroe
       POSTGRES_USER: $${DB_USER}
       POSTGRES_PASSWORD: $${DB_PASSWORD}
     volumes:
@@ -42,7 +42,7 @@ services:
       retries: 5
 
   backend:
-    image: $${DOCKERHUB_USERNAME}/skyops-backend:$${IMAGE_TAG:-latest}
+    image: $${DOCKERHUB_USERNAME}/skybroe-backend:$${IMAGE_TAG:-latest}
     restart: unless-stopped
     depends_on:
       db:
@@ -50,17 +50,33 @@ services:
     environment:
       NODE_ENV: production
       PORT: 3001
-      DB_URL: postgresql://$${DB_USER}:$${DB_PASSWORD}@db:5432/skyops
+      DB_URL: postgresql://$${DB_USER}:$${DB_PASSWORD}@db:5432/skybroe
       FAA_CLIENT_ID: $${FAA_CLIENT_ID}
       FAA_CLIENT_SECRET: $${FAA_CLIENT_SECRET}
+      AWS_REGION: ${aws_region}
+      APP_URL: https://${domain_name}
+    logging:
+      driver: awslogs
+      options:
+        awslogs-region: ${aws_region}
+        awslogs-group: /skybroe/app
+        awslogs-stream: backend
+        awslogs-create-group: "true"
     ports:
       - "3001:3001"
 
   web:
-    image: $${DOCKERHUB_USERNAME}/skyops-web:$${IMAGE_TAG:-latest}
+    image: $${DOCKERHUB_USERNAME}/skybroe-web:$${IMAGE_TAG:-latest}
     restart: unless-stopped
     depends_on:
       - backend
+    logging:
+      driver: awslogs
+      options:
+        awslogs-region: ${aws_region}
+        awslogs-group: /skybroe/app
+        awslogs-stream: web
+        awslogs-create-group: "true"
     ports:
       - "80:8080"
 
@@ -68,23 +84,23 @@ volumes:
   pgdata:
 COMPOSE
 
-chown ec2-user:ec2-user /opt/skyops/docker-compose.prod.yml
+chown ec2-user:ec2-user /opt/skybroe/docker-compose.prod.yml
 
 # ── Systemd service — starts containers on reboot once .env exists ─
-cat > /etc/systemd/system/skyops.service <<'SERVICE'
+cat > /etc/systemd/system/skybroe.service <<'SERVICE'
 [Unit]
-Description=SkyOps containers
+Description=SkyBroe containers
 After=docker.service network-online.target
 Requires=docker.service
-ConditionPathExists=/opt/skyops/.env
+ConditionPathExists=/opt/skybroe/.env
 
 [Service]
 Type=oneshot
 RemainAfterExit=yes
 User=ec2-user
-WorkingDirectory=/opt/skyops
-ExecStart=/usr/bin/docker compose -f /opt/skyops/docker-compose.prod.yml up -d
-ExecStop=/usr/bin/docker compose -f /opt/skyops/docker-compose.prod.yml down
+WorkingDirectory=/opt/skybroe
+ExecStart=/usr/bin/docker compose -f /opt/skybroe/docker-compose.prod.yml up -d
+ExecStop=/usr/bin/docker compose -f /opt/skybroe/docker-compose.prod.yml down
 TimeoutStartSec=300
 
 [Install]
@@ -92,6 +108,6 @@ WantedBy=multi-user.target
 SERVICE
 
 systemctl daemon-reload
-systemctl enable skyops
+systemctl enable skybroe
 
-echo "skyops-init complete — Docker ready, awaiting first deploy"
+echo "skybroe-init complete — Docker ready, awaiting first deploy"

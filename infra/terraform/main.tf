@@ -84,6 +84,16 @@ resource "aws_iam_role_policy" "ssm_read" {
   })
 }
 
+resource "aws_iam_role_policy_attachment" "cw_agent" {
+  role       = aws_iam_role.skyops_ec2.name
+  policy_arn = "arn:aws:iam::aws:policy/CloudWatchAgentServerPolicy"
+}
+
+resource "aws_iam_role_policy_attachment" "xray" {
+  role       = aws_iam_role.skyops_ec2.name
+  policy_arn = "arn:aws:iam::aws:policy/AWSXRayDaemonWriteAccess"
+}
+
 resource "aws_iam_role_policy" "ses_send" {
   name = "skybroe-ses-send"
   role = aws_iam_role.skyops_ec2.id
@@ -172,6 +182,7 @@ resource "aws_instance" "skyops" {
     ssm_prefix         = var.ssm_prefix
     dockerhub_username = var.dockerhub_username
     image_tag          = var.app_image_tag
+    domain_name        = var.domain_name
   })
 
   tags = { Name = "skyops-app" }

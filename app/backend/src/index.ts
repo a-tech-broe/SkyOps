@@ -15,6 +15,7 @@ import authRouter from './routes/auth';
 import { requireAuth } from './middleware/requireAuth';
 import { errorHandler } from './middleware/errorHandler';
 import { initDb } from './db/pool';
+import { requestLogger } from './middleware/logger';
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -22,8 +23,9 @@ const PORT = process.env.PORT || 3001;
 app.use(helmet());
 app.use(cors());
 app.use(express.json());
+app.use(requestLogger);
 
-app.get('/health', (_, res) => res.json({ status: 'ok', service: 'SkyOps API' }));
+app.get('/health', (_, res) => res.json({ status: 'ok', service: 'SkyBroe API' }));
 
 // Auth routes — no token required
 app.use('/api/auth', authRouter);
