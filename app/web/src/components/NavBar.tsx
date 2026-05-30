@@ -1,3 +1,4 @@
+import { useState, useRef } from 'react';
 import { NavLink, useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 
@@ -16,9 +17,70 @@ const opsDropdownLinks = [
 const AIRPORTS_PATHS = new Set(['/airports', '/map', '/weather', '/winds']);
 const OPS_PATHS      = new Set(['/ops', '/route', '/currency', '/dispatch']);
 
-const NAV_ITEM = 'px-3 py-1.5 rounded-lg text-sm font-medium transition-colors whitespace-nowrap';
+const NAV_ITEM   = 'px-3 py-1.5 rounded-lg text-sm font-medium transition-colors whitespace-nowrap inline-flex items-center gap-1';
 const NAV_ACTIVE = 'bg-blue-600 text-white';
-const NAV_IDLE = 'text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100 hover:bg-slate-100 dark:hover:bg-slate-800';
+const NAV_IDLE   = 'text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100 hover:bg-slate-100 dark:hover:bg-slate-800';
+
+function Chevron() {
+  return (
+    <svg className="w-3 h-3 opacity-60" viewBox="0 0 12 12" fill="currentColor">
+      <path d="M6 8L1 3h10z"/>
+    </svg>
+  );
+}
+
+interface DropdownProps {
+  to: string;
+  label: string;
+  isActive: boolean;
+  items: { to: string; label: string }[];
+}
+
+function DropdownNav({ to, label, isActive, items }: DropdownProps) {
+  const [open, setOpen] = useState(false);
+  const closeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  function onEnter() {
+    if (closeTimer.current) clearTimeout(closeTimer.current);
+    setOpen(true);
+  }
+
+  function onLeave() {
+    closeTimer.current = setTimeout(() => setOpen(false), 120);
+  }
+
+  return (
+    <div className="relative" onMouseEnter={onEnter} onMouseLeave={onLeave}>
+      <NavLink to={to} className={`${NAV_ITEM} ${isActive ? NAV_ACTIVE : NAV_IDLE}`}>
+        {label}
+        <Chevron />
+      </NavLink>
+
+      {open && (
+        <div className="absolute top-full left-0 pt-1 z-50">
+          <div className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl shadow-lg overflow-hidden min-w-[130px]">
+            {items.map(({ to: itemTo, label: itemLabel }) => (
+              <NavLink
+                key={itemTo}
+                to={itemTo}
+                onClick={() => setOpen(false)}
+                className={({ isActive: ia }) =>
+                  `block px-4 py-2 text-sm font-medium transition-colors ${
+                    ia
+                      ? 'bg-blue-50 dark:bg-blue-950 text-blue-600 dark:text-blue-400'
+                      : 'text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700 hover:text-slate-900 dark:hover:text-slate-100'
+                  }`
+                }
+              >
+                {itemLabel}
+              </NavLink>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
 
 interface Props {
   dark: boolean;
@@ -54,74 +116,9 @@ export default function NavBar({ dark, onToggle }: Props) {
 
         {/* Nav links — only shown when logged in */}
         {user && (
-          <div className="flex gap-1 flex-1 overflow-x-auto items-center">
-
-            {/* Airports dropdown */}
-            <div className="relative group">
-              <NavLink
-                to="/airports"
-                className={`${NAV_ITEM} inline-flex items-center gap-1 ${airportsActive ? NAV_ACTIVE : NAV_IDLE}`}
-              >
-                Airports
-                <svg className="w-3 h-3 opacity-60" viewBox="0 0 12 12" fill="currentColor">
-                  <path d="M6 8L1 3h10z"/>
-                </svg>
-              </NavLink>
-
-              {/* Dropdown panel */}
-              <div className="absolute top-full left-0 pt-1 hidden group-hover:block z-50">
-                <div className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl shadow-lg overflow-hidden min-w-[130px]">
-                  {airportsDropdownLinks.map(({ to, label }) => (
-                    <NavLink
-                      key={to}
-                      to={to}
-                      className={({ isActive }) =>
-                        `block px-4 py-2 text-sm font-medium transition-colors ${
-                          isActive
-                            ? 'bg-blue-50 dark:bg-blue-950 text-blue-600 dark:text-blue-400'
-                            : 'text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700 hover:text-slate-900 dark:hover:text-slate-100'
-                        }`
-                      }
-                    >
-                      {label}
-                    </NavLink>
-                  ))}
-                </div>
-              </div>
-            </div>
-
-            {/* Ops dropdown */}
-            <div className="relative group">
-              <NavLink
-                to="/ops"
-                className={`${NAV_ITEM} inline-flex items-center gap-1 ${opsActive ? NAV_ACTIVE : NAV_IDLE}`}
-              >
-                Ops
-                <svg className="w-3 h-3 opacity-60" viewBox="0 0 12 12" fill="currentColor">
-                  <path d="M6 8L1 3h10z"/>
-                </svg>
-              </NavLink>
-
-              <div className="absolute top-full left-0 pt-1 hidden group-hover:block z-50">
-                <div className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl shadow-lg overflow-hidden min-w-[130px]">
-                  {opsDropdownLinks.map(({ to, label }) => (
-                    <NavLink
-                      key={to}
-                      to={to}
-                      className={({ isActive }) =>
-                        `block px-4 py-2 text-sm font-medium transition-colors ${
-                          isActive
-                            ? 'bg-blue-50 dark:bg-blue-950 text-blue-600 dark:text-blue-400'
-                            : 'text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700 hover:text-slate-900 dark:hover:text-slate-100'
-                        }`
-                      }
-                    >
-                      {label}
-                    </NavLink>
-                  ))}
-                </div>
-              </div>
-            </div>
+          <div className="flex gap-1 flex-1 items-center">
+            <DropdownNav to="/airports" label="Airports" isActive={airportsActive} items={airportsDropdownLinks} />
+            <DropdownNav to="/ops"      label="Ops"      isActive={opsActive}      items={opsDropdownLinks}      />
           </div>
         )}
 
