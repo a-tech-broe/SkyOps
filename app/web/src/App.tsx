@@ -5,7 +5,6 @@ import NavBar from './components/NavBar';
 import ProtectedRoute from './components/ProtectedRoute';
 import LandingPage from './pages/LandingPage';
 import WeatherPage from './pages/WeatherPage';
-import NOTAMPage from './pages/NOTAMPage';
 import AirportPage from './pages/AirportPage';
 import WindsAloftPage from './pages/WindsAloftPage';
 import RouteBriefingPage from './pages/RouteBriefingPage';
@@ -13,7 +12,6 @@ import CurrencyPage from './pages/CurrencyPage';
 import DispatchPage from './pages/DispatchPage';
 import MapPage from './pages/MapPage';
 import ObservabilityPage from './pages/ObservabilityPage';
-import ReplayPage from './pages/ReplayPage';
 
 const FULL_WIDTH_PATHS = ['/', '/map'];
 
@@ -47,14 +45,12 @@ function AppShell() {
           <Route path="/" element={<LandingPage />} />
           <Route path="/map"      element={<ProtectedRoute><MapPage /></ProtectedRoute>} />
           <Route path="/weather"  element={<ProtectedRoute><WeatherPage /></ProtectedRoute>} />
-          <Route path="/notams"   element={<ProtectedRoute><NOTAMPage /></ProtectedRoute>} />
           <Route path="/airports" element={<ProtectedRoute><AirportPage /></ProtectedRoute>} />
           <Route path="/winds"    element={<ProtectedRoute><WindsAloftPage /></ProtectedRoute>} />
           <Route path="/route"    element={<ProtectedRoute><RouteBriefingPage /></ProtectedRoute>} />
           <Route path="/currency" element={<ProtectedRoute><CurrencyPage /></ProtectedRoute>} />
           <Route path="/dispatch" element={<ProtectedRoute><DispatchPage /></ProtectedRoute>} />
           <Route path="/ops"      element={<ProtectedRoute><ObservabilityPage /></ProtectedRoute>} />
-          <Route path="/replay"   element={<ProtectedRoute><ReplayPage /></ProtectedRoute>} />
         </Routes>
       </main>
     </div>
