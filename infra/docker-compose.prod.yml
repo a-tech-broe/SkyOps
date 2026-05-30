@@ -8,7 +8,7 @@ services:
     image: postgres:16-alpine
     restart: unless-stopped
     environment:
-      POSTGRES_DB: skyops
+      POSTGRES_DB: skybroe
       POSTGRES_USER: ${DB_USER}
       POSTGRES_PASSWORD: ${DB_PASSWORD}
     volumes:
@@ -18,10 +18,10 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
-    networks: [skyops]
+    networks: [skybroe]
 
   backend:
-    image: ${DOCKERHUB_USERNAME}/skyops-backend:${IMAGE_TAG:-latest}
+    image: ${DOCKERHUB_USERNAME}/skybroe-backend:${IMAGE_TAG:-latest}
     restart: unless-stopped
     depends_on:
       db:
@@ -29,27 +29,27 @@ services:
     environment:
       NODE_ENV: production
       PORT: 3001
-      DB_URL: postgresql://${DB_USER}:${DB_PASSWORD}@db:5432/skyops
+      DB_URL: postgresql://${DB_USER}:${DB_PASSWORD}@db:5432/skybroe
       FAA_CLIENT_ID: ${FAA_CLIENT_ID}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
       FAA_CLIENT_SECRET: ${FAA_CLIENT_SECRET}
     ports:
       - "3001:3001"
-    networks: [skyops]
+    networks: [skybroe]
 
   web:
-    image: ${DOCKERHUB_USERNAME}/skyops-web:${IMAGE_TAG:-latest}
+    image: ${DOCKERHUB_USERNAME}/skybroe-web:${IMAGE_TAG:-latest}
     restart: unless-stopped
     depends_on:
       - backend
     ports:
       - "80:8080"
-    networks: [skyops]
+    networks: [skybroe]
 
 volumes:
   pgdata:
 
 networks:
-  skyops:
-    name: skyops_default
+  skybroe:
+    name: skybroe_default
     driver: bridge

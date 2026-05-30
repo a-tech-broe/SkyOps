@@ -1,4 +1,4 @@
-const KEY = 'skyops_device_id';
+const KEY = 'skybroe_device_id';
 
 export function getDeviceId(): string {
   let id = localStorage.getItem(KEY);

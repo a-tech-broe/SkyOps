@@ -60,7 +60,7 @@ export default function LandingPage() {
         <div className="flex items-center gap-2">
           <span className="text-2xl">✈</span>
           <span className="font-bold text-lg tracking-tight">
-            Sky<span className="text-blue-400">Ops</span>
+            Sky<span className="text-blue-400">Broe</span>
           </span>
           <span className="text-slate-500 text-xs ml-1">by ATechBroe</span>
         </div>
