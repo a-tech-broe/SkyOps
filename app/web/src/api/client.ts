@@ -55,6 +55,10 @@ export const api = {
       post<{ token: string; user: { id: string; email: string } }>('/auth/login', { email, password }),
     me: () =>
       get<{ user: { id: string; email: string } }>('/auth/me'),
+    forgotPassword: (email: string) =>
+      post<{ message: string }>('/auth/forgot-password', { email }),
+    resetPassword: (token: string, password: string) =>
+      post<{ message: string }>('/auth/reset-password', { token, password }),
   },
   weather: {
     metar: (icao: string) => get(`/weather/metar/${icao}`),

@@ -84,6 +84,20 @@ resource "aws_iam_role_policy" "ssm_read" {
   })
 }
 
+resource "aws_iam_role_policy" "ses_send" {
+  name = "skybroe-ses-send"
+  role = aws_iam_role.skyops_ec2.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect   = "Allow"
+      Action   = ["ses:SendEmail", "ses:SendRawEmail"]
+      Resource = "*"
+    }]
+  })
+}
+
 resource "aws_iam_instance_profile" "skyops_ec2" {
   name = "skyops-ec2-profile"
   role = aws_iam_role.skyops_ec2.name
