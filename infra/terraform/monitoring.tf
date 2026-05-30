@@ -300,6 +300,7 @@ resource "aws_cloudwatch_dashboard" "skybroe" {
         type = "metric", x = 0, y = 0, width = 6, height = 6
         properties = {
           title   = "CPU Utilization"
+          region  = var.aws_region
           view    = "timeSeries"
           period  = 60
           stat    = "Average"
@@ -311,6 +312,7 @@ resource "aws_cloudwatch_dashboard" "skybroe" {
         type = "metric", x = 6, y = 0, width = 6, height = 6
         properties = {
           title   = "Memory Used %"
+          region  = var.aws_region
           view    = "timeSeries"
           period  = 60
           stat    = "Average"
@@ -322,6 +324,7 @@ resource "aws_cloudwatch_dashboard" "skybroe" {
         type = "metric", x = 12, y = 0, width = 6, height = 6
         properties = {
           title   = "Disk Used %"
+          region  = var.aws_region
           view    = "timeSeries"
           period  = 300
           stat    = "Maximum"
@@ -333,6 +336,7 @@ resource "aws_cloudwatch_dashboard" "skybroe" {
         type = "metric", x = 18, y = 0, width = 6, height = 6
         properties = {
           title  = "Network I/O (bytes)"
+          region = var.aws_region
           view   = "timeSeries"
           period = 60
           metrics = [
@@ -346,6 +350,7 @@ resource "aws_cloudwatch_dashboard" "skybroe" {
         type = "metric", x = 0, y = 6, width = 6, height = 6
         properties = {
           title   = "Request Count"
+          region  = var.aws_region
           view    = "timeSeries"
           period  = 60
           stat    = "Sum"
@@ -356,6 +361,7 @@ resource "aws_cloudwatch_dashboard" "skybroe" {
         type = "metric", x = 6, y = 6, width = 6, height = 6
         properties = {
           title  = "Response Time (s)"
+          region = var.aws_region
           view   = "timeSeries"
           period = 60
           metrics = [
@@ -369,6 +375,7 @@ resource "aws_cloudwatch_dashboard" "skybroe" {
         type = "metric", x = 12, y = 6, width = 6, height = 6
         properties = {
           title  = "HTTP Status Codes"
+          region = var.aws_region
           view   = "timeSeries"
           period = 60
           metrics = [
@@ -382,6 +389,7 @@ resource "aws_cloudwatch_dashboard" "skybroe" {
         type = "metric", x = 18, y = 6, width = 6, height = 6
         properties = {
           title  = "Active / New Connections"
+          region = var.aws_region
           view   = "timeSeries"
           period = 60
           metrics = [
@@ -395,8 +403,8 @@ resource "aws_cloudwatch_dashboard" "skybroe" {
         type = "log", x = 0, y = 12, width = 24, height = 6
         properties = {
           title  = "API Requests (last 1h)"
-          query  = "SOURCE '/skybroe/app' | fields @timestamp, method, path, status, ms, userId, ip | sort @timestamp desc | limit 200"
           region = var.aws_region
+          query  = "SOURCE '/skybroe/app' | fields @timestamp, method, path, status, ms, userId, ip | sort @timestamp desc | limit 200"
           view   = "table"
         }
       },
@@ -404,8 +412,8 @@ resource "aws_cloudwatch_dashboard" "skybroe" {
         type = "log", x = 0, y = 18, width = 24, height = 6
         properties = {
           title  = "Errors & 5xx (last 1h)"
-          query  = "SOURCE '/skybroe/app' | fields @timestamp, method, path, status, ms, userId, ip | filter status >= 500 or level = 'error' | sort @timestamp desc | limit 100"
           region = var.aws_region
+          query  = "SOURCE '/skybroe/app' | fields @timestamp, method, path, status, ms, userId, ip | filter status >= 500 or level = 'error' | sort @timestamp desc | limit 100"
           view   = "table"
         }
       },
@@ -413,8 +421,8 @@ resource "aws_cloudwatch_dashboard" "skybroe" {
         type = "log", x = 0, y = 24, width = 12, height = 6
         properties = {
           title  = "Top Endpoints (last 1h)"
-          query  = "SOURCE '/skybroe/app' | stats count() as hits, avg(ms) as avg_ms by path | sort hits desc | limit 20"
           region = var.aws_region
+          query  = "SOURCE '/skybroe/app' | stats count() as hits, avg(ms) as avg_ms by path | sort hits desc | limit 20"
           view   = "table"
         }
       },
@@ -422,8 +430,8 @@ resource "aws_cloudwatch_dashboard" "skybroe" {
         type = "log", x = 12, y = 24, width = 12, height = 6
         properties = {
           title  = "Active Users (last 1h)"
-          query  = "SOURCE '/skybroe/app' | stats count() as requests by userId | filter ispresent(userId) and userId != 'null' | sort requests desc | limit 50"
           region = var.aws_region
+          query  = "SOURCE '/skybroe/app' | stats count() as requests by userId | filter ispresent(userId) and userId != 'null' | sort requests desc | limit 50"
           view   = "table"
         }
       }
