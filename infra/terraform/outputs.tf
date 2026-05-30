@@ -33,3 +33,18 @@ output "acm_validation_records" {
     }
   } : {}
 }
+
+output "rum_app_monitor_id" {
+  description = "CloudWatch RUM app monitor ID — set as VITE_RUM_APP_ID in the web build"
+  value       = aws_rum_app_monitor.skybroe.id
+}
+
+output "rum_identity_pool_id" {
+  description = "Cognito Identity Pool ID for CloudWatch RUM — set as VITE_RUM_IDENTITY_POOL_ID in the web build"
+  value       = aws_cognito_identity_pool.rum.id
+}
+
+output "cloudwatch_dashboard_url" {
+  description = "CloudWatch dashboard URL"
+  value       = "https://${var.aws_region}.console.aws.amazon.com/cloudwatch/home?region=${var.aws_region}#dashboards:name=SkyBroe-Overview"
+}

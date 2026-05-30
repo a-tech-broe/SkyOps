@@ -54,3 +54,9 @@ variable "app_eip" {
   description = "Existing Elastic IP for the app EC2 (value of EC2_HOST GitHub Secret)"
   type        = string
 }
+
+variable "alarm_email" {
+  description = "Email address for CloudWatch alarm notifications (leave empty to skip)"
+  type        = string
+  default     = ""
+}
