@@ -4,14 +4,12 @@ import { useAuth } from '../context/AuthContext';
 const links = [
   { to: '/map',      label: 'Map'      },
   { to: '/weather',  label: 'Weather'  },
-  { to: '/notams',   label: 'NOTAMs'   },
   { to: '/airports', label: 'Airports' },
   { to: '/winds',    label: 'Winds'    },
   { to: '/route',    label: 'Briefing' },
   { to: '/currency', label: 'Currency' },
   { to: '/dispatch', label: 'Dispatch' },
-  { to: '/ops',      label: 'Ops' },
-  { to: '/replay',   label: 'Replay' },
+  { to: '/ops',      label: 'Ops'      },
 ];
 
 interface Props {

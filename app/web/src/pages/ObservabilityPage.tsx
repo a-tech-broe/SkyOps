@@ -2,6 +2,9 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../api/client';
 import { parseMetarFlightRules } from '../utils/aviation';
+import ReplayPage from './ReplayPage';
+
+type OpsTab = 'live' | 'replay';
 
 type Panel = 'ifr' | null;
 
@@ -48,6 +51,7 @@ function saveRoutes(routes: Route[]) {
 
 export default function ObservabilityPage() {
   const navigate = useNavigate();
+  const [opsTab, setOpsTab] = useState<OpsTab>('live');
   const [routes,      setRoutes]      = useState<Route[]>(loadRoutes);
   const [snapshots,   setSnapshots]   = useState<ObsSnapshot>({});
   const [counts,      setCounts]      = useState({ sigmets: 0, tfrs: 0 });
@@ -136,8 +140,25 @@ export default function ObservabilityPage() {
   const allIcaos  = [...new Set(routes.flatMap(r => [r.dep, r.dest]))];
   const ifrCount  = allIcaos.filter(ic => { const fr = getFR(ic); return fr === 'IFR' || fr === 'LIFR'; }).length;
 
+  const TAB_CLS = (t: OpsTab) =>
+    `px-4 py-2 text-sm font-medium transition-colors border-b-2 -mb-px ${
+      opsTab === t
+        ? 'border-blue-600 text-blue-600 dark:text-blue-400'
+        : 'border-transparent text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100'
+    }`;
+
   return (
     <div className="space-y-6">
+
+      {/* ── Tab selector ───────────────────────────────────────────── */}
+      <div className="flex border-b border-slate-200 dark:border-slate-700">
+        <button className={TAB_CLS('live')}   onClick={() => setOpsTab('live')}>Live</button>
+        <button className={TAB_CLS('replay')} onClick={() => setOpsTab('replay')}>Replay</button>
+      </div>
+
+      {opsTab === 'replay' && <ReplayPage />}
+
+      {opsTab === 'live' && <>
 
       {/* ── Header ─────────────────────────────────────────────────── */}
       <div className="flex items-start justify-between gap-4 flex-wrap">
@@ -402,6 +423,8 @@ export default function ObservabilityPage() {
           Dispatch Strip →
         </button>
       </div>
+
+      </>}
     </div>
   );
 }
