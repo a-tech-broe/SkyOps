@@ -80,7 +80,7 @@ resource "aws_ssm_parameter" "cw_agent_config" {
       logs_collected = {
         files = {
           collect_list = [{
-            file_path       = "/var/log/skyops-init.log"
+            file_path       = "/var/log/skybroe-init.log"
             log_group_name  = "/skybroe/system"
             log_stream_name = "{instance_id}"
             timezone        = "UTC"
@@ -97,7 +97,7 @@ resource "aws_ssm_association" "cw_agent_install" {
   name = "AWS-ConfigureAWSPackage"
   targets {
     key    = "InstanceIds"
-    values = [aws_instance.skyops.id]
+    values = [aws_instance.skybroe.id]
   }
   parameters = {
     action = "Install"
@@ -109,7 +109,7 @@ resource "aws_ssm_association" "cw_agent_configure" {
   name = "AmazonCloudWatch-ManageAgent"
   targets {
     key    = "InstanceIds"
-    values = [aws_instance.skyops.id]
+    values = [aws_instance.skybroe.id]
   }
   parameters = {
     action                        = "configure"
@@ -194,7 +194,7 @@ resource "aws_cloudwatch_metric_alarm" "cpu_high" {
   treat_missing_data  = "notBreaching"
   alarm_actions       = [aws_sns_topic.alerts.arn]
   ok_actions          = [aws_sns_topic.alerts.arn]
-  dimensions          = { InstanceId = aws_instance.skyops.id }
+  dimensions          = { InstanceId = aws_instance.skybroe.id }
   tags                = local.protect
 }
 
@@ -211,7 +211,7 @@ resource "aws_cloudwatch_metric_alarm" "memory_high" {
   treat_missing_data  = "notBreaching"
   alarm_actions       = [aws_sns_topic.alerts.arn]
   ok_actions          = [aws_sns_topic.alerts.arn]
-  dimensions          = { InstanceId = aws_instance.skyops.id }
+  dimensions          = { InstanceId = aws_instance.skybroe.id }
   tags                = local.protect
 }
 
@@ -228,7 +228,7 @@ resource "aws_cloudwatch_metric_alarm" "disk_high" {
   treat_missing_data  = "notBreaching"
   alarm_actions       = [aws_sns_topic.alerts.arn]
   dimensions = {
-    InstanceId = aws_instance.skyops.id
+    InstanceId = aws_instance.skybroe.id
     path       = "/"
     device     = "xvda1"
     fstype     = "xfs"
@@ -249,7 +249,7 @@ resource "aws_cloudwatch_metric_alarm" "alb_5xx" {
   treat_missing_data  = "notBreaching"
   alarm_actions       = [aws_sns_topic.alerts.arn]
   ok_actions          = [aws_sns_topic.alerts.arn]
-  dimensions          = { LoadBalancer = aws_lb.skyops.arn_suffix }
+  dimensions          = { LoadBalancer = aws_lb.skybroe.arn_suffix }
   tags                = local.protect
 }
 
@@ -265,7 +265,7 @@ resource "aws_cloudwatch_metric_alarm" "alb_latency" {
   threshold           = 3
   treat_missing_data  = "notBreaching"
   alarm_actions       = [aws_sns_topic.alerts.arn]
-  dimensions          = { LoadBalancer = aws_lb.skyops.arn_suffix }
+  dimensions          = { LoadBalancer = aws_lb.skybroe.arn_suffix }
   tags                = local.protect
 }
 
@@ -283,7 +283,7 @@ resource "aws_cloudwatch_metric_alarm" "alb_unhealthy" {
   alarm_actions       = [aws_sns_topic.alerts.arn]
   ok_actions          = [aws_sns_topic.alerts.arn]
   dimensions = {
-    LoadBalancer = aws_lb.skyops.arn_suffix
+    LoadBalancer = aws_lb.skybroe.arn_suffix
     TargetGroup  = aws_lb_target_group.backend.arn_suffix
   }
   tags = local.protect
@@ -304,7 +304,7 @@ resource "aws_cloudwatch_dashboard" "skybroe" {
           view    = "timeSeries"
           period  = 60
           stat    = "Average"
-          metrics = [["AWS/EC2", "CPUUtilization", "InstanceId", aws_instance.skyops.id]]
+          metrics = [["AWS/EC2", "CPUUtilization", "InstanceId", aws_instance.skybroe.id]]
           yAxis   = { left = { min = 0, max = 100 } }
         }
       },
@@ -316,7 +316,7 @@ resource "aws_cloudwatch_dashboard" "skybroe" {
           view    = "timeSeries"
           period  = 60
           stat    = "Average"
-          metrics = [["CWAgent", "mem_used_percent", "InstanceId", aws_instance.skyops.id]]
+          metrics = [["CWAgent", "mem_used_percent", "InstanceId", aws_instance.skybroe.id]]
           yAxis   = { left = { min = 0, max = 100 } }
         }
       },
@@ -328,7 +328,7 @@ resource "aws_cloudwatch_dashboard" "skybroe" {
           view    = "timeSeries"
           period  = 300
           stat    = "Maximum"
-          metrics = [["CWAgent", "disk_used_percent", "InstanceId", aws_instance.skyops.id, "path", "/", "device", "xvda1", "fstype", "xfs"]]
+          metrics = [["CWAgent", "disk_used_percent", "InstanceId", aws_instance.skybroe.id, "path", "/", "device", "xvda1", "fstype", "xfs"]]
           yAxis   = { left = { min = 0, max = 100 } }
         }
       },
@@ -340,8 +340,8 @@ resource "aws_cloudwatch_dashboard" "skybroe" {
           view   = "timeSeries"
           period = 60
           metrics = [
-            ["AWS/EC2", "NetworkIn",  "InstanceId", aws_instance.skyops.id, { stat = "Sum", label = "In" }],
-            ["AWS/EC2", "NetworkOut", "InstanceId", aws_instance.skyops.id, { stat = "Sum", label = "Out" }]
+            ["AWS/EC2", "NetworkIn",  "InstanceId", aws_instance.skybroe.id, { stat = "Sum", label = "In" }],
+            ["AWS/EC2", "NetworkOut", "InstanceId", aws_instance.skybroe.id, { stat = "Sum", label = "Out" }]
           ]
         }
       },
@@ -354,7 +354,7 @@ resource "aws_cloudwatch_dashboard" "skybroe" {
           view    = "timeSeries"
           period  = 60
           stat    = "Sum"
-          metrics = [["AWS/ApplicationELB", "RequestCount", "LoadBalancer", aws_lb.skyops.arn_suffix]]
+          metrics = [["AWS/ApplicationELB", "RequestCount", "LoadBalancer", aws_lb.skybroe.arn_suffix]]
         }
       },
       {
@@ -365,9 +365,9 @@ resource "aws_cloudwatch_dashboard" "skybroe" {
           view   = "timeSeries"
           period = 60
           metrics = [
-            ["AWS/ApplicationELB", "TargetResponseTime", "LoadBalancer", aws_lb.skyops.arn_suffix, { stat = "p50", label = "p50" }],
-            ["AWS/ApplicationELB", "TargetResponseTime", "LoadBalancer", aws_lb.skyops.arn_suffix, { stat = "p95", label = "p95" }],
-            ["AWS/ApplicationELB", "TargetResponseTime", "LoadBalancer", aws_lb.skyops.arn_suffix, { stat = "p99", label = "p99" }]
+            ["AWS/ApplicationELB", "TargetResponseTime", "LoadBalancer", aws_lb.skybroe.arn_suffix, { stat = "p50", label = "p50" }],
+            ["AWS/ApplicationELB", "TargetResponseTime", "LoadBalancer", aws_lb.skybroe.arn_suffix, { stat = "p95", label = "p95" }],
+            ["AWS/ApplicationELB", "TargetResponseTime", "LoadBalancer", aws_lb.skybroe.arn_suffix, { stat = "p99", label = "p99" }]
           ]
         }
       },
@@ -379,9 +379,9 @@ resource "aws_cloudwatch_dashboard" "skybroe" {
           view   = "timeSeries"
           period = 60
           metrics = [
-            ["AWS/ApplicationELB", "HTTPCode_Target_2XX_Count", "LoadBalancer", aws_lb.skyops.arn_suffix, { stat = "Sum", label = "2xx" }],
-            ["AWS/ApplicationELB", "HTTPCode_Target_4XX_Count", "LoadBalancer", aws_lb.skyops.arn_suffix, { stat = "Sum", label = "4xx" }],
-            ["AWS/ApplicationELB", "HTTPCode_Target_5XX_Count", "LoadBalancer", aws_lb.skyops.arn_suffix, { stat = "Sum", label = "5xx" }]
+            ["AWS/ApplicationELB", "HTTPCode_Target_2XX_Count", "LoadBalancer", aws_lb.skybroe.arn_suffix, { stat = "Sum", label = "2xx" }],
+            ["AWS/ApplicationELB", "HTTPCode_Target_4XX_Count", "LoadBalancer", aws_lb.skybroe.arn_suffix, { stat = "Sum", label = "4xx" }],
+            ["AWS/ApplicationELB", "HTTPCode_Target_5XX_Count", "LoadBalancer", aws_lb.skybroe.arn_suffix, { stat = "Sum", label = "5xx" }]
           ]
         }
       },
@@ -393,8 +393,8 @@ resource "aws_cloudwatch_dashboard" "skybroe" {
           view   = "timeSeries"
           period = 60
           metrics = [
-            ["AWS/ApplicationELB", "ActiveConnectionCount", "LoadBalancer", aws_lb.skyops.arn_suffix, { stat = "Sum", label = "Active" }],
-            ["AWS/ApplicationELB", "NewConnectionCount",    "LoadBalancer", aws_lb.skyops.arn_suffix, { stat = "Sum", label = "New" }]
+            ["AWS/ApplicationELB", "ActiveConnectionCount", "LoadBalancer", aws_lb.skybroe.arn_suffix, { stat = "Sum", label = "Active" }],
+            ["AWS/ApplicationELB", "NewConnectionCount",    "LoadBalancer", aws_lb.skybroe.arn_suffix, { stat = "Sum", label = "New" }]
           ]
         }
       },

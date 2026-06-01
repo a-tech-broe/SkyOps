@@ -23,7 +23,7 @@ variable "allowed_ssh_cidr" {
 }
 
 variable "dockerhub_username" {
-  description = "Docker Hub username (images pulled as <username>/skyops-backend, skyops-web)"
+  description = "Docker Hub username (images pulled as <username>/skybroe-backend, skybroe-web)"
   type        = string
 }
 
@@ -36,11 +36,11 @@ variable "app_image_tag" {
 variable "ssm_prefix" {
   description = "SSM Parameter Store path prefix for app secrets"
   type        = string
-  default     = "/skyops"
+  default     = "/skybroe"
 }
 
 variable "domain_name" {
-  description = "Domain name for the ACM certificate and app URL (e.g. skyops.example.com)"
+  description = "Domain name for the ACM certificate and app URL (e.g. skybroe.example.com)"
   type        = string
 }
 

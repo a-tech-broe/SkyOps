@@ -46,8 +46,8 @@ data "aws_ami" "al2023" {
 }
 
 # ── IAM role — EC2 reads SSM secrets at boot ─────────────────────
-resource "aws_iam_role" "skyops_ec2" {
-  name = "skyops-ec2-role"
+resource "aws_iam_role" "skybroe_ec2" {
+  name = "skybroe-ec2-role"
 
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
@@ -58,7 +58,7 @@ resource "aws_iam_role" "skyops_ec2" {
     }]
   })
 
-  tags = merge({ Name = "skyops-ec2-role" }, local.protect)
+  tags = merge({ Name = "skybroe-ec2-role" }, local.protect)
 
   lifecycle {
     prevent_destroy = true
@@ -66,8 +66,8 @@ resource "aws_iam_role" "skyops_ec2" {
 }
 
 resource "aws_iam_role_policy" "ssm_read" {
-  name = "skyops-ssm-read"
-  role = aws_iam_role.skyops_ec2.id
+  name = "skybroe-ssm-read"
+  role = aws_iam_role.skybroe_ec2.id
 
   policy = jsonencode({
     Version = "2012-10-17"
@@ -83,18 +83,18 @@ resource "aws_iam_role_policy" "ssm_read" {
 }
 
 resource "aws_iam_role_policy_attachment" "cw_agent" {
-  role       = aws_iam_role.skyops_ec2.name
+  role       = aws_iam_role.skybroe_ec2.name
   policy_arn = "arn:aws:iam::aws:policy/CloudWatchAgentServerPolicy"
 }
 
 resource "aws_iam_role_policy_attachment" "xray" {
-  role       = aws_iam_role.skyops_ec2.name
+  role       = aws_iam_role.skybroe_ec2.name
   policy_arn = "arn:aws:iam::aws:policy/AWSXRayDaemonWriteAccess"
 }
 
 resource "aws_iam_role_policy" "ses_send" {
   name = "skybroe-ses-send"
-  role = aws_iam_role.skyops_ec2.id
+  role = aws_iam_role.skybroe_ec2.id
 
   policy = jsonencode({
     Version = "2012-10-17"
@@ -106,11 +106,11 @@ resource "aws_iam_role_policy" "ses_send" {
   })
 }
 
-resource "aws_iam_instance_profile" "skyops_ec2" {
-  name = "skyops-ec2-profile"
-  role = aws_iam_role.skyops_ec2.name
+resource "aws_iam_instance_profile" "skybroe_ec2" {
+  name = "skybroe-ec2-profile"
+  role = aws_iam_role.skybroe_ec2.name
 
-  tags = merge({ Name = "skyops-ec2-profile" }, local.protect)
+  tags = merge({ Name = "skybroe-ec2-profile" }, local.protect)
 
   lifecycle {
     prevent_destroy = true
@@ -118,9 +118,9 @@ resource "aws_iam_instance_profile" "skyops_ec2" {
 }
 
 # ── Security group ────────────────────────────────────────────────
-resource "aws_security_group" "skyops" {
-  name        = "skyops-sg"
-  description = "SkyOps: HTTP + HTTPS inbound, SSH restricted"
+resource "aws_security_group" "skybroe" {
+  name        = "skybroe-sg"
+  description = "Skybroe: HTTP + HTTPS inbound, SSH restricted"
   vpc_id      = data.aws_vpc.default.id
 
   ingress {
@@ -154,7 +154,7 @@ resource "aws_security_group" "skyops" {
     cidr_blocks = ["0.0.0.0/0"]
   }
 
-  tags = merge({ Name = "skyops-sg" }, local.protect)
+  tags = merge({ Name = "skybroe-sg" }, local.protect)
 
   lifecycle {
     prevent_destroy = true
@@ -162,12 +162,12 @@ resource "aws_security_group" "skyops" {
 }
 
 # ── EC2 instance ──────────────────────────────────────────────────
-resource "aws_instance" "skyops" {
+resource "aws_instance" "skybroe" {
   ami                    = data.aws_ami.al2023.id
   instance_type          = var.instance_type
   key_name               = var.key_name
-  iam_instance_profile   = aws_iam_instance_profile.skyops_ec2.name
-  vpc_security_group_ids = [aws_security_group.skyops.id]
+  iam_instance_profile   = aws_iam_instance_profile.skybroe_ec2.name
+  vpc_security_group_ids = [aws_security_group.skybroe.id]
 
   root_block_device {
     volume_type = "gp3"
@@ -183,7 +183,7 @@ resource "aws_instance" "skyops" {
     domain_name        = var.domain_name
   })
 
-  tags = { Name = "skyops-app" }
+  tags = { Name = "skybroe-app" }
 
   lifecycle {
     prevent_destroy = true
@@ -192,13 +192,13 @@ resource "aws_instance" "skyops" {
 }
 
 # ── Elastic IP (pre-existing, managed outside Terraform) ─────────
-data "aws_eip" "skyops" {
+data "aws_eip" "skybroe" {
   public_ip = var.app_eip
 }
 
-resource "aws_eip_association" "skyops" {
-  instance_id   = aws_instance.skyops.id
-  allocation_id = data.aws_eip.skyops.id
+resource "aws_eip_association" "skybroe" {
+  instance_id   = aws_instance.skybroe.id
+  allocation_id = data.aws_eip.skybroe.id
 
   lifecycle {
     ignore_changes = [instance_id, allocation_id]

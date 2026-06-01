@@ -1,6 +1,6 @@
 #!/bin/bash
 set -euo pipefail
-exec > /var/log/skyops-init.log 2>&1
+exec > /var/log/skybroe-init.log 2>&1
 
 # ── Docker + Compose plugin (Amazon Linux 2023 repo — no curl needed) ─
 dnf install -y docker
