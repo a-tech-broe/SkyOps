@@ -142,7 +142,7 @@ jobs:
           file: ./app/${{ matrix.service }}/Dockerfile
           push: false
           load: true
-          tags: skyops-${{ matrix.service }}:ci
+          tags: skybroe-${{ matrix.service }}:ci
           cache-from: type=gha,scope=${{ matrix.service }}-ci
           cache-to: type=gha,scope=${{ matrix.service }}-ci,mode=max
           build-args: VITE_API_URL=http://localhost:3001
@@ -176,7 +176,7 @@ jobs:
         uses: aquasecurity/trivy-action@master
         continue-on-error: true
         with:
-          image-ref: skyops-${{ matrix.service }}:ci
+          image-ref: skybroe-${{ matrix.service }}:ci
           severity: CRITICAL,HIGH
           exit-code: '0'
           ignore-unfixed: true
@@ -198,7 +198,7 @@ jobs:
 
       - name: Warn on scan findings
         if: steps.trivy-image.outcome == 'failure'
-        run: echo "::warning::Trivy found vulnerabilities in skyops-${{ matrix.service }}. Review Security → Code scanning."
+        run: echo "::warning::Trivy found vulnerabilities in skybroe-${{ matrix.service }}. Review Security → Code scanning."
 
       - name: Tombstone retired trivy-prod category
         if: always()

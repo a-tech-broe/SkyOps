@@ -111,7 +111,7 @@ jobs:
         id: meta
         uses: docker/metadata-action@v5
         with:
-          images: ${{ secrets.DOCKERHUB_USERNAME }}/skyops-${{ matrix.service }}
+          images: ${{ secrets.DOCKERHUB_USERNAME }}/skybroe-${{ matrix.service }}
           tags: |
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
@@ -120,9 +120,9 @@ jobs:
             type=sha,prefix=sha-,format=short
             type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
           labels: |
-            org.opencontainers.image.title=SkyOps ${{ matrix.service }}
+            org.opencontainers.image.title=SkyBroe ${{ matrix.service }}
             org.opencontainers.image.description=Aviation tools for GA pilots
-            org.opencontainers.image.vendor=SkyOps
+            org.opencontainers.image.vendor=SkyBroe
             org.opencontainers.image.licenses=MIT
 
       - name: Build and push
@@ -145,7 +145,7 @@ jobs:
         uses: aquasecurity/trivy-action@master
         continue-on-error: true
         with:
-          image-ref: ${{ secrets.DOCKERHUB_USERNAME }}/skyops-${{ matrix.service }}@${{ steps.build.outputs.digest }}
+          image-ref: ${{ secrets.DOCKERHUB_USERNAME }}/skybroe-${{ matrix.service }}@${{ steps.build.outputs.digest }}
           severity: CRITICAL,HIGH
           exit-code: '0'
           ignore-unfixed: true
@@ -167,7 +167,7 @@ jobs:
 
       - name: Warn on scan findings
         if: steps.trivy-image.outcome == 'failure'
-        run: echo "::warning::Trivy found vulnerabilities in skyops-${{ matrix.service }}. Review Security → Code scanning."
+        run: echo "::warning::Trivy found vulnerabilities in skybroe-${{ matrix.service }}. Review Security → Code scanning."
 
       - name: Install Cosign
         uses: sigstore/cosign-installer@v3
@@ -176,7 +176,7 @@ jobs:
         if: ${{ github.event_name != 'workflow_dispatch' || inputs.push }}
         run: |
           cosign sign --yes \
-            "${{ secrets.DOCKERHUB_USERNAME }}/skyops-${{ matrix.service }}@${{ steps.build.outputs.digest }}"
+            "${{ secrets.DOCKERHUB_USERNAME }}/skybroe-${{ matrix.service }}@${{ steps.build.outputs.digest }}"
         env:
           COSIGN_EXPERIMENTAL: '1'
 
@@ -184,7 +184,7 @@ jobs:
         uses: anchore/sbom-action@v0.18.0
         continue-on-error: true
         with:
-          image: ${{ secrets.DOCKERHUB_USERNAME }}/skyops-${{ matrix.service }}@${{ steps.build.outputs.digest }}
+          image: ${{ secrets.DOCKERHUB_USERNAME }}/skybroe-${{ matrix.service }}@${{ steps.build.outputs.digest }}
           format: spdx-json
           artifact-name: sbom-${{ matrix.service }}-${{ github.sha }}.spdx.json
           upload-artifact: true
@@ -260,14 +260,14 @@ jobs:
           }
 
           # ── IAM — EC2 role (inline policies + managed attachments) ───
-          tf_import_if_missing aws_iam_role.skyops_ec2 skyops-ec2-role
-          tf_import_if_missing aws_iam_instance_profile.skyops_ec2 skyops-ec2-profile
-          tf_import_if_missing aws_iam_role_policy.ssm_read skyops-ec2-role:skyops-ssm-read
-          tf_import_if_missing aws_iam_role_policy.ses_send skyops-ec2-role:skybroe-ses-send
+          tf_import_if_missing aws_iam_role.skybroe_ec2 skybroe-ec2-role
+          tf_import_if_missing aws_iam_instance_profile.skybroe_ec2 skybroe-ec2-profile
+          tf_import_if_missing aws_iam_role_policy.ssm_read skybroe-ec2-role:skybroe-ssm-read
+          tf_import_if_missing aws_iam_role_policy.ses_send skybroe-ec2-role:skybroe-ses-send
           tf_import_if_missing aws_iam_role_policy_attachment.cw_agent \
-            "skyops-ec2-role/arn:aws:iam::aws:policy/CloudWatchAgentServerPolicy"
+            "skybroe-ec2-role/arn:aws:iam::aws:policy/CloudWatchAgentServerPolicy"
           tf_import_if_missing aws_iam_role_policy_attachment.xray \
-            "skyops-ec2-role/arn:aws:iam::aws:policy/AWSXRayDaemonWriteAccess"
+            "skybroe-ec2-role/arn:aws:iam::aws:policy/AWSXRayDaemonWriteAccess"
 
           # ── IAM — RUM unauthenticated guest role ────────────────────
           tf_import_if_missing aws_iam_role.rum_unauth skybroe-rum-unauth
@@ -276,19 +276,19 @@ jobs:
 
           # ── Security groups (app + ALB; both protected, survive) ────
           SG_ID=$(aws ec2 describe-security-groups \
-            --filters "Name=group-name,Values=skyops-sg" \
+            --filters "Name=group-name,Values=skybroe-sg" \
             --query "SecurityGroups[0].GroupId" --output text --region "$REGION" 2>/dev/null || true)
           [ -n "$SG_ID" ] && [ "$SG_ID" != "None" ] && \
-            tf_import_if_missing aws_security_group.skyops "$SG_ID"
+            tf_import_if_missing aws_security_group.skybroe "$SG_ID"
 
           ALB_SG_ID=$(aws ec2 describe-security-groups \
-            --filters "Name=group-name,Values=skyops-alb-sg" \
+            --filters "Name=group-name,Values=skybroe-alb-sg" \
             --query "SecurityGroups[0].GroupId" --output text --region "$REGION" 2>/dev/null || true)
           [ -n "$ALB_SG_ID" ] && [ "$ALB_SG_ID" != "None" ] && \
             tf_import_if_missing aws_security_group.alb "$ALB_SG_ID"
 
           # ── Target groups (protected, survive; ALB itself is recreated)
-          for pair in "web:skyops-web-tg" "backend:skyops-api-tg"; do
+          for pair in "web:skybroe-web-tg" "backend:skybroe-api-tg"; do
             ADDR="aws_lb_target_group.${pair%%:*}"
             TG_NAME="${pair##*:}"
             TG_ARN=$(aws elbv2 describe-target-groups --names "$TG_NAME" \
@@ -297,23 +297,25 @@ jobs:
               tf_import_if_missing "$ADDR" "$TG_ARN"
           done
 
-          # ── EC2 instance (skyops-app) ───────────────────────────────
+          # ── EC2 instance (skybroe-app) ───────────────────────────────
           APP_INSTANCE_ID=$(aws ec2 describe-instances \
-            --filters "Name=tag:Name,Values=skyops-app" \
+            --filters "Name=tag:Name,Values=skybroe-app" \
                       "Name=instance-state-name,Values=running,stopped" \
             --query "Reservations[0].Instances[0].InstanceId" \
             --output text --region "$REGION" 2>/dev/null || true)
           [ -n "$APP_INSTANCE_ID" ] && [ "$APP_INSTANCE_ID" != "None" ] && \
-            tf_import_if_missing aws_instance.skyops "$APP_INSTANCE_ID"
+            tf_import_if_missing aws_instance.skybroe "$APP_INSTANCE_ID"
 
           # ── EIP association ─────────────────────────────────────────
           APP_ASSOC_ID=$(aws ec2 describe-addresses \
             --filters "Name=public-ip,Values=$TF_VAR_app_eip" \
             --query "Addresses[0].AssociationId" --output text --region "$REGION" 2>/dev/null || true)
           [ -n "$APP_ASSOC_ID" ] && [ "$APP_ASSOC_ID" != "None" ] && \
-            tf_import_if_missing aws_eip_association.skyops "$APP_ASSOC_ID"
+            tf_import_if_missing aws_eip_association.skybroe "$APP_ASSOC_ID"
 
-          # ── Remove managed EIP from state (now a data source) ───────
+          # ── Remove legacy managed EIP from state (now a data source) ─
+          # Historical entry predates the skybroe rename, so target the old
+          # address to purge any stale state.
           if terraform state show aws_eip.skyops > /dev/null 2>&1; then
             terraform state rm aws_eip.skyops
             echo "Removed legacy aws_eip.skyops from state"
@@ -322,10 +324,10 @@ jobs:
           # ── Internet gateway — now an unmanaged data source ─────────
           # The default VPC's IGW is referenced via data source, not created.
           # Drop any previously-imported (and possibly tainted/detached)
-          # managed entry so Terraform stops trying to replace it.
+          # legacy managed entry so Terraform stops trying to replace it.
           if terraform state show aws_internet_gateway.skyops > /dev/null 2>&1; then
             terraform state rm aws_internet_gateway.skyops
-            echo "Removed aws_internet_gateway.skyops from state (now a data source)"
+            echo "Removed legacy aws_internet_gateway.skyops from state (now a data source)"
           fi
 
           # ── Observability — SNS / logs / S3 / SSM ───────────────────
@@ -371,7 +373,7 @@ jobs:
         run: |
           REGION="${{ secrets.AWS_REGION || 'us-east-1' }}"
           INSTANCE_ID=$(aws ec2 describe-instances \
-            --filters "Name=tag:Name,Values=skyops-app" "Name=instance-state-name,Values=running" \
+            --filters "Name=tag:Name,Values=skybroe-app" "Name=instance-state-name,Values=running" \
             --query "Reservations[0].Instances[0].InstanceId" \
             --output text --region "$REGION")
           echo "Waiting for instance $INSTANCE_ID to pass status checks..."
@@ -419,8 +421,8 @@ jobs:
               sudo mkdir -p /usr/local/lib/docker/cli-plugins
               sudo install -m 0755 /tmp/docker-compose /usr/local/lib/docker/cli-plugins/docker-compose
             fi
-            sudo mkdir -p /opt/skyops
-            sudo tee /opt/skyops/.env > /dev/null <<EOF
+            sudo mkdir -p /opt/skybroe
+            sudo tee /opt/skybroe/.env > /dev/null <<EOF
             DB_USER=${DB_USER}
             DB_PASSWORD=${DB_PASSWORD}
             JWT_SECRET=${JWT_SECRET}
@@ -431,14 +433,14 @@ jobs:
             DOCKERHUB_USERNAME=${DOCKERHUB_USERNAME}
             IMAGE_TAG=latest
             EOF
-            sudo chmod 600 /opt/skyops/.env
-            sudo tee /opt/skyops/docker-compose.prod.yml > /dev/null <<'COMPOSE'
+            sudo chmod 600 /opt/skybroe/.env
+            sudo tee /opt/skybroe/docker-compose.prod.yml > /dev/null <<'COMPOSE'
             services:
               db:
                 image: postgres:16-alpine
                 restart: unless-stopped
                 environment:
-                  POSTGRES_DB: skyops
+                  POSTGRES_DB: skybroe
                   POSTGRES_USER: ${DB_USER}
                   POSTGRES_PASSWORD: ${DB_PASSWORD}
                 volumes:
@@ -449,7 +451,7 @@ jobs:
                   timeout: 5s
                   retries: 5
               backend:
-                image: ${DOCKERHUB_USERNAME}/skyops-backend:${IMAGE_TAG:-latest}
+                image: ${DOCKERHUB_USERNAME}/skybroe-backend:${IMAGE_TAG:-latest}
                 restart: unless-stopped
                 depends_on:
                   db:
@@ -457,7 +459,7 @@ jobs:
                 environment:
                   NODE_ENV: production
                   PORT: 3001
-                  DB_URL: postgresql://${DB_USER}:${DB_PASSWORD}@db:5432/skyops
+                  DB_URL: postgresql://${DB_USER}:${DB_PASSWORD}@db:5432/skybroe
                   FAA_CLIENT_ID: ${FAA_CLIENT_ID}
                   FAA_CLIENT_SECRET: ${FAA_CLIENT_SECRET}
                   ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
@@ -465,7 +467,7 @@ jobs:
                 ports:
                   - "3001:3001"
               web:
-                image: ${DOCKERHUB_USERNAME}/skyops-web:${IMAGE_TAG:-latest}
+                image: ${DOCKERHUB_USERNAME}/skybroe-web:${IMAGE_TAG:-latest}
                 restart: unless-stopped
                 depends_on:
                   - backend
@@ -474,7 +476,7 @@ jobs:
             volumes:
               pgdata:
             COMPOSE
-            cd /opt/skyops
+            cd /opt/skybroe
             sudo docker compose -f docker-compose.prod.yml pull
             sudo docker compose -f docker-compose.prod.yml up -d --remove-orphans
             sudo docker image prune -f
@@ -533,7 +535,7 @@ jobs:
       - name: Write summary
         run: |
           SHA=$(echo "${{ github.sha }}" | cut -c1-7)
-          echo "## SkyOps Release — \`$SHA\`" >> $GITHUB_STEP_SUMMARY
+          echo "## SkyBroe Release — \`$SHA\`" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "| Stage | Result |" >> $GITHUB_STEP_SUMMARY
           echo "|---|---|" >> $GITHUB_STEP_SUMMARY
@@ -547,5 +549,5 @@ jobs:
           echo "cosign verify \\" >> $GITHUB_STEP_SUMMARY
           echo "  --certificate-identity-regexp='https://github.com/${{ github.repository }}' \\" >> $GITHUB_STEP_SUMMARY
           echo "  --certificate-oidc-issuer='https://token.actions.githubusercontent.com' \\" >> $GITHUB_STEP_SUMMARY
-          echo "  ${{ secrets.DOCKERHUB_USERNAME }}/skyops-backend:latest" >> $GITHUB_STEP_SUMMARY
+          echo "  ${{ secrets.DOCKERHUB_USERNAME }}/skybroe-backend:latest" >> $GITHUB_STEP_SUMMARY
           echo '```' >> $GITHUB_STEP_SUMMARY
