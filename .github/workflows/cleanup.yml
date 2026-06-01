@@ -1,4 +1,4 @@
-name: AWS Cleanup — Destroy SkyOps Resources
+name: AWS Cleanup — Destroy SkyBroe Resources
 
 # Manually triggered from any branch.
 # Resources tagged do_not_delete=true are always skipped.
@@ -33,7 +33,7 @@ concurrency:
 
 jobs:
   cleanup:
-    name: Destroy SkyOps AWS Resources
+    name: Destroy SkyBroe AWS Resources
     runs-on: ubuntu-latest
     env:
       AWS_ACCESS_KEY_ID:     ${{ secrets.AWS_ACCESS_KEY_ID }}
@@ -222,7 +222,7 @@ jobs:
         run: |
           TERMINATE_IDS=""
 
-          for INST_NAME in skyops-app skyops-monitoring; do
+          for INST_NAME in skyops-app; do
             INST_ID=$(aws ec2 describe-instances \
               --filters \
                 "Name=tag:Name,Values=$INST_NAME" \
@@ -262,7 +262,7 @@ jobs:
       # ── Phase 4: Security groups ────────────────────────────────────
       - name: "Phase 4 — Security groups"
         run: |
-          for SG_NAME in skyops-sg skyops-monitoring-sg skyops-alb-sg; do
+          for SG_NAME in skyops-sg skyops-alb-sg; do
             SG_ID=$(aws ec2 describe-security-groups \
               --filters "Name=group-name,Values=$SG_NAME" \
               --query "SecurityGroups[0].GroupId" \
@@ -378,8 +378,166 @@ jobs:
               || echo "WARNING: certificate deletion failed (may still be in use by ALB)"
           fi
 
-      # ── Phase 7: IAM (policy → instance profile → role) ─────────────
-      - name: "Phase 7 — IAM (inline policy → instance profile → role)"
+      # ── Phase 7: Observability (CloudWatch / RUM / SNS / logs / S3) ─
+      # All of these resources are tagged do_not_delete=true in Terraform
+      # (they are free / near-zero cost), so they are normally SKIPPED and
+      # survive a teardown for cheap re-provisioning. They are enumerated
+      # here so the cleanup is a complete inventory and still works if the
+      # protect tag is ever removed.
+      - name: "Phase 7 — Observability (alarms, dashboard, RUM, SNS, logs, S3)"
+        run: |
+          protected() { grep -qF "$1" /tmp/protected_arns.txt 2>/dev/null; }
+          REGION="$AWS_DEFAULT_REGION"
+
+          # CloudWatch metric alarms
+          for A in skybroe-cpu-high skybroe-memory-high skybroe-disk-high \
+                   skybroe-alb-5xx skybroe-alb-latency skybroe-alb-unhealthy-hosts; do
+            EXISTS=$(aws cloudwatch describe-alarms --alarm-names "$A" \
+              --query "MetricAlarms[0].AlarmName" --output text 2>/dev/null || true)
+            [ -z "$EXISTS" ] || [ "$EXISTS" = "None" ] && echo "Alarm $A not found." && continue
+            ARN="arn:aws:cloudwatch:${REGION}:${ACCOUNT_ID}:alarm:${A}"
+            if protected "$ARN"; then
+              echo "SKIP — alarm $A tagged do_not_delete=true"
+            elif [ "$DRY_RUN" = "true" ]; then
+              echo "[DRY RUN] Would delete alarm: $A"
+            else
+              aws cloudwatch delete-alarms --alarm-names "$A" && echo "Deleted alarm $A"
+            fi
+          done
+
+          # CloudWatch dashboard (dashboards are not taggable — always eligible)
+          if aws cloudwatch get-dashboard --dashboard-name "SkyBroe-Overview" >/dev/null 2>&1; then
+            if [ "$DRY_RUN" = "true" ]; then
+              echo "[DRY RUN] Would delete dashboard: SkyBroe-Overview"
+            else
+              aws cloudwatch delete-dashboards --dashboard-names "SkyBroe-Overview" \
+                && echo "Deleted dashboard SkyBroe-Overview"
+            fi
+          else
+            echo "Dashboard SkyBroe-Overview not found."
+          fi
+
+          # CloudWatch RUM app monitor
+          if aws rum get-app-monitor --name "skybroe-web" >/dev/null 2>&1; then
+            RUM_ARN="arn:aws:rum:${REGION}:${ACCOUNT_ID}:appmonitor/skybroe-web"
+            if protected "$RUM_ARN"; then
+              echo "SKIP — RUM app monitor skybroe-web tagged do_not_delete=true"
+            elif [ "$DRY_RUN" = "true" ]; then
+              echo "[DRY RUN] Would delete RUM app monitor: skybroe-web"
+            else
+              aws rum delete-app-monitor --name "skybroe-web" \
+                && echo "Deleted RUM app monitor skybroe-web"
+            fi
+          else
+            echo "RUM app monitor skybroe-web not found."
+          fi
+
+          # Cognito identity pool (RUM guest access)
+          POOL_ID=$(aws cognito-identity list-identity-pools --max-results 60 \
+            --query "IdentityPools[?IdentityPoolName=='skybroe_rum'].IdentityPoolId | [0]" \
+            --output text 2>/dev/null || true)
+          if [ -z "$POOL_ID" ] || [ "$POOL_ID" = "None" ]; then
+            echo "Cognito identity pool skybroe_rum not found."
+          else
+            POOL_ARN="arn:aws:cognito-identity:${REGION}:${ACCOUNT_ID}:identitypool/${POOL_ID}"
+            if protected "$POOL_ARN"; then
+              echo "SKIP — Cognito identity pool skybroe_rum tagged do_not_delete=true"
+            elif [ "$DRY_RUN" = "true" ]; then
+              echo "[DRY RUN] Would delete Cognito identity pool: skybroe_rum ($POOL_ID)"
+            else
+              aws cognito-identity delete-identity-pool --identity-pool-id "$POOL_ID" \
+                && echo "Deleted Cognito identity pool skybroe_rum"
+            fi
+          fi
+
+          # RUM unauthenticated IAM role (inline policies → role)
+          RUM_ROLE="skybroe-rum-unauth"
+          RUM_ROLE_ARN=$(aws iam get-role --role-name "$RUM_ROLE" \
+            --query "Role.Arn" --output text 2>/dev/null || true)
+          if [ -z "$RUM_ROLE_ARN" ] || [ "$RUM_ROLE_ARN" = "None" ]; then
+            echo "IAM role $RUM_ROLE not found."
+          elif protected "$RUM_ROLE_ARN"; then
+            echo "SKIP — IAM role $RUM_ROLE tagged do_not_delete=true"
+          elif [ "$DRY_RUN" = "true" ]; then
+            echo "[DRY RUN] Would delete inline policies + IAM role $RUM_ROLE"
+          else
+            for P in $(aws iam list-role-policies --role-name "$RUM_ROLE" \
+              --query "PolicyNames[]" --output text 2>/dev/null); do
+              aws iam delete-role-policy --role-name "$RUM_ROLE" --policy-name "$P" \
+                && echo "Deleted inline policy $P from $RUM_ROLE"
+            done
+            aws iam delete-role --role-name "$RUM_ROLE" \
+              && echo "Deleted IAM role $RUM_ROLE" \
+              || echo "WARNING: IAM role $RUM_ROLE deletion failed"
+          fi
+
+          # SNS alerts topic
+          TOPIC_ARN="arn:aws:sns:${REGION}:${ACCOUNT_ID}:skybroe-alerts"
+          if aws sns get-topic-attributes --topic-arn "$TOPIC_ARN" >/dev/null 2>&1; then
+            if protected "$TOPIC_ARN"; then
+              echo "SKIP — SNS topic skybroe-alerts tagged do_not_delete=true"
+            elif [ "$DRY_RUN" = "true" ]; then
+              echo "[DRY RUN] Would delete SNS topic: skybroe-alerts"
+            else
+              aws sns delete-topic --topic-arn "$TOPIC_ARN" \
+                && echo "Deleted SNS topic skybroe-alerts"
+            fi
+          else
+            echo "SNS topic skybroe-alerts not found."
+          fi
+
+          # CloudWatch log groups
+          for LG in /skybroe/app /skybroe/system; do
+            FOUND=$(aws logs describe-log-groups --log-group-name-prefix "$LG" \
+              --query "logGroups[?logGroupName=='${LG}'].logGroupName | [0]" \
+              --output text 2>/dev/null || true)
+            [ -z "$FOUND" ] || [ "$FOUND" = "None" ] && echo "Log group $LG not found." && continue
+            LG_ARN="arn:aws:logs:${REGION}:${ACCOUNT_ID}:log-group:${LG}"
+            if protected "$LG_ARN" || protected "${LG_ARN}:*"; then
+              echo "SKIP — log group $LG tagged do_not_delete=true"
+            elif [ "$DRY_RUN" = "true" ]; then
+              echo "[DRY RUN] Would delete log group: $LG"
+            else
+              aws logs delete-log-group --log-group-name "$LG" \
+                && echo "Deleted log group $LG"
+            fi
+          done
+
+          # SSM parameter — CloudWatch agent config
+          SSM_PARAM="/skybroe/cloudwatch-agent-config"
+          if aws ssm get-parameter --name "$SSM_PARAM" >/dev/null 2>&1; then
+            SSM_ARN="arn:aws:ssm:${REGION}:${ACCOUNT_ID}:parameter${SSM_PARAM}"
+            if protected "$SSM_ARN"; then
+              echo "SKIP — SSM parameter $SSM_PARAM tagged do_not_delete=true"
+            elif [ "$DRY_RUN" = "true" ]; then
+              echo "[DRY RUN] Would delete SSM parameter: $SSM_PARAM"
+            else
+              aws ssm delete-parameter --name "$SSM_PARAM" \
+                && echo "Deleted SSM parameter $SSM_PARAM"
+            fi
+          else
+            echo "SSM parameter $SSM_PARAM not found."
+          fi
+
+          # S3 ALB access-logs bucket (empty + delete)
+          BUCKET="skybroe-alb-logs-${ACCOUNT_ID}"
+          if aws s3api head-bucket --bucket "$BUCKET" 2>/dev/null; then
+            BUCKET_ARN="arn:aws:s3:::${BUCKET}"
+            if protected "$BUCKET_ARN"; then
+              echo "SKIP — S3 bucket $BUCKET tagged do_not_delete=true"
+            elif [ "$DRY_RUN" = "true" ]; then
+              echo "[DRY RUN] Would empty + delete S3 bucket: $BUCKET"
+            else
+              aws s3 rb "s3://$BUCKET" --force \
+                && echo "Deleted S3 bucket $BUCKET" \
+                || echo "WARNING: could not delete S3 bucket $BUCKET"
+            fi
+          else
+            echo "S3 bucket $BUCKET not found."
+          fi
+
+      # ── Phase 8: IAM (detach all policies → instance profile → role) ─
+      - name: "Phase 8 — IAM (detach all policies → instance profile → role)"
         run: |
           ROLE_NAME="skyops-ec2-role"
           ROLE_ARN=$(aws iam get-role --role-name "$ROLE_NAME" \
@@ -401,38 +559,54 @@ jobs:
             PROFILE_PROTECTED=true
           fi
 
+          # A role cannot be deleted while it still has inline policies,
+          # managed-policy attachments, or instance-profile membership, so
+          # enumerate and clear all three rather than hardcoding names.
+          INLINE=$(aws iam list-role-policies --role-name "$ROLE_NAME" \
+            --query "PolicyNames[]" --output text 2>/dev/null || true)
+          ATTACHED=$(aws iam list-attached-role-policies --role-name "$ROLE_NAME" \
+            --query "AttachedPolicies[].PolicyArn" --output text 2>/dev/null || true)
+
           if [ "$DRY_RUN" = "true" ]; then
-            echo "[DRY RUN] Would delete: inline policy skyops-ssm-read, instance profile skyops-ec2-profile, role $ROLE_NAME"
+            echo "[DRY RUN] Would delete inline policies: ${INLINE:-<none>}"
+            echo "[DRY RUN] Would detach managed policies: ${ATTACHED:-<none>}"
+            echo "[DRY RUN] Would delete instance profile skyops-ec2-profile and role $ROLE_NAME"
             [ "$PROFILE_PROTECTED" = "true" ] && \
               echo "  NOTE: instance profile $PROFILE_ARN is tagged do_not_delete=true — would be skipped"
           else
-            aws iam delete-role-policy \
-              --role-name "$ROLE_NAME" \
-              --policy-name "skyops-ssm-read" 2>/dev/null \
-              && echo "Deleted inline policy skyops-ssm-read" \
-              || echo "Inline policy not found or already deleted"
+            for P in $INLINE; do
+              aws iam delete-role-policy --role-name "$ROLE_NAME" --policy-name "$P" \
+                && echo "Deleted inline policy $P"
+            done
+
+            for P in $ATTACHED; do
+              aws iam detach-role-policy --role-name "$ROLE_NAME" --policy-arn "$P" \
+                && echo "Detached managed policy $P"
+            done
 
             if [ "$PROFILE_PROTECTED" = "true" ]; then
               echo "SKIP — instance profile $PROFILE_ARN tagged do_not_delete=true"
-            else
-              aws iam remove-role-from-instance-profile \
-                --instance-profile-name "skyops-ec2-profile" \
-                --role-name "$ROLE_NAME" 2>/dev/null \
-                && echo "Removed role from instance profile" || true
-
-              aws iam delete-instance-profile \
-                --instance-profile-name "skyops-ec2-profile" 2>/dev/null \
-                && echo "Deleted instance profile skyops-ec2-profile" \
-                || echo "Instance profile not found or already deleted"
+              echo "WARNING: role $ROLE_NAME cannot be deleted while still in a protected instance profile."
+              exit 0
             fi
+
+            aws iam remove-role-from-instance-profile \
+              --instance-profile-name "skyops-ec2-profile" \
+              --role-name "$ROLE_NAME" 2>/dev/null \
+              && echo "Removed role from instance profile" || true
+
+            aws iam delete-instance-profile \
+              --instance-profile-name "skyops-ec2-profile" 2>/dev/null \
+              && echo "Deleted instance profile skyops-ec2-profile" \
+              || echo "Instance profile not found or already deleted"
 
             aws iam delete-role --role-name "$ROLE_NAME" \
               && echo "Deleted IAM role $ROLE_NAME" \
               || echo "WARNING: IAM role deletion failed"
           fi
 
-      # ── Phase 8 (optional): Terraform state ─────────────────────────
-      - name: "Phase 8 — Terraform S3 state + DynamoDB lock (optional)"
+      # ── Phase 9 (optional): Terraform state ─────────────────────────
+      - name: "Phase 9 — Terraform S3 state + DynamoDB lock (optional)"
         if: ${{ inputs.clean_tf_state == true || inputs.clean_tf_state == 'true' }}
         run: |
           BUCKET="${{ secrets.TF_BACKEND_BUCKET }}"
@@ -481,7 +655,10 @@ jobs:
           | Triggered by | \`${{ github.actor }}\` on \`${{ github.ref_name }}\` |
 
           **Resources always skipped:** Elastic IPs (pre-allocated, managed outside Terraform).
-          **Other skips:** any resource tagged \`do_not_delete=true\`.
+          **Other skips:** any resource tagged \`do_not_delete=true\` — this covers all networking, IAM,
+          and observability scaffolding (IGW, security groups, ACM cert, log groups, SNS, RUM, Cognito,
+          S3 logs bucket, alarms). A normal teardown therefore destroys only the cost-incurring EC2
+          instance and ALB, leaving the free scaffolding intact.
 
           To re-provision, run the CD workflow from \`main\`.
           EOF
