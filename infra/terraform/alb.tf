@@ -7,7 +7,7 @@ data "aws_subnets" "default" {
 }
 
 # ── ACM Certificate ───────────────────────────────────────────────
-resource "aws_acm_certificate" "skyops" {
+resource "aws_acm_certificate" "skybroe" {
   domain_name               = var.domain_name
   subject_alternative_names = ["www.${var.domain_name}"]
   validation_method         = "DNS"
@@ -16,13 +16,13 @@ resource "aws_acm_certificate" "skyops" {
     create_before_destroy = true
   }
 
-  tags = merge({ Name = "skyops-cert" }, local.protect)
+  tags = merge({ Name = "skybroe-cert" }, local.protect)
 }
 
 # ── Route53 DNS validation — only created when hosted_zone_id set ─
 resource "aws_route53_record" "cert_validation" {
   for_each = var.hosted_zone_id != "" ? {
-    for dvo in aws_acm_certificate.skyops.domain_validation_options : dvo.domain_name => {
+    for dvo in aws_acm_certificate.skybroe.domain_validation_options : dvo.domain_name => {
       name   = dvo.resource_record_name
       record = dvo.resource_record_value
       type   = dvo.resource_record_type
@@ -37,16 +37,16 @@ resource "aws_route53_record" "cert_validation" {
   zone_id         = var.hosted_zone_id
 }
 
-resource "aws_acm_certificate_validation" "skyops" {
+resource "aws_acm_certificate_validation" "skybroe" {
   count                   = var.hosted_zone_id != "" ? 1 : 0
-  certificate_arn         = aws_acm_certificate.skyops.arn
+  certificate_arn         = aws_acm_certificate.skybroe.arn
   validation_record_fqdns = [for r in aws_route53_record.cert_validation : r.fqdn]
 }
 
 # ── ALB Security Group ────────────────────────────────────────────
 resource "aws_security_group" "alb" {
-  name        = "skyops-alb-sg"
-  description = "SkyOps ALB: HTTP + HTTPS from internet"
+  name        = "skybroe-alb-sg"
+  description = "SkyBroe ALB: HTTP + HTTPS from internet"
   vpc_id      = data.aws_vpc.default.id
 
   ingress {
@@ -72,12 +72,12 @@ resource "aws_security_group" "alb" {
     cidr_blocks = ["0.0.0.0/0"]
   }
 
-  tags = merge({ Name = "skyops-alb-sg" }, local.protect)
+  tags = merge({ Name = "skybroe-alb-sg" }, local.protect)
 }
 
 # ── Target Groups ─────────────────────────────────────────────────
 resource "aws_lb_target_group" "web" {
-  name     = "skyops-web-tg"
+  name     = "skybroe-web-tg"
   port     = 80
   protocol = "HTTP"
   vpc_id   = data.aws_vpc.default.id
@@ -91,11 +91,11 @@ resource "aws_lb_target_group" "web" {
     matcher             = "200"
   }
 
-  tags = merge({ Name = "skyops-web-tg" }, local.protect)
+  tags = merge({ Name = "skybroe-web-tg" }, local.protect)
 }
 
 resource "aws_lb_target_group" "backend" {
-  name     = "skyops-api-tg"
+  name     = "skybroe-api-tg"
   port     = 3001
   protocol = "HTTP"
   vpc_id   = data.aws_vpc.default.id
@@ -109,24 +109,24 @@ resource "aws_lb_target_group" "backend" {
     matcher             = "200"
   }
 
-  tags = merge({ Name = "skyops-api-tg" }, local.protect)
+  tags = merge({ Name = "skybroe-api-tg" }, local.protect)
 }
 
 resource "aws_lb_target_group_attachment" "web" {
   target_group_arn = aws_lb_target_group.web.arn
-  target_id        = aws_instance.skyops.id
+  target_id        = aws_instance.skybroe.id
   port             = 80
 }
 
 resource "aws_lb_target_group_attachment" "backend" {
   target_group_arn = aws_lb_target_group.backend.arn
-  target_id        = aws_instance.skyops.id
+  target_id        = aws_instance.skybroe.id
   port             = 3001
 }
 
 # ── Application Load Balancer ─────────────────────────────────────
-resource "aws_lb" "skyops" {
-  name               = "skyops-alb"
+resource "aws_lb" "skybroe" {
+  name               = "skybroe-alb"
   internal           = false
   load_balancer_type = "application"
   security_groups    = [aws_security_group.alb.id]
@@ -137,13 +137,13 @@ resource "aws_lb" "skyops" {
     enabled = true
   }
 
-  tags       = { Name = "skyops-alb" }
+  tags       = { Name = "skybroe-alb" }
   depends_on = [aws_s3_bucket_policy.alb_logs]
 }
 
 # ── HTTP → HTTPS redirect ─────────────────────────────────────────
 resource "aws_lb_listener" "http" {
-  load_balancer_arn = aws_lb.skyops.arn
+  load_balancer_arn = aws_lb.skybroe.arn
   port              = 80
   protocol          = "HTTP"
 
@@ -156,23 +156,23 @@ resource "aws_lb_listener" "http" {
     }
   }
 
-  tags = merge({ Name = "skyops-http-listener" }, local.protect)
+  tags = merge({ Name = "skybroe-http-listener" }, local.protect)
 }
 
 # ── HTTPS listener — default to web, /api/* and /health → backend ─
 resource "aws_lb_listener" "https" {
-  load_balancer_arn = aws_lb.skyops.arn
+  load_balancer_arn = aws_lb.skybroe.arn
   port              = 443
   protocol          = "HTTPS"
   ssl_policy        = "ELBSecurityPolicy-TLS13-1-2-2021-06"
-  certificate_arn   = var.hosted_zone_id != "" ? aws_acm_certificate_validation.skyops[0].certificate_arn : aws_acm_certificate.skyops.arn
+  certificate_arn   = var.hosted_zone_id != "" ? aws_acm_certificate_validation.skybroe[0].certificate_arn : aws_acm_certificate.skybroe.arn
 
   default_action {
     type             = "forward"
     target_group_arn = aws_lb_target_group.web.arn
   }
 
-  tags = merge({ Name = "skyops-https-listener" }, local.protect)
+  tags = merge({ Name = "skybroe-https-listener" }, local.protect)
 }
 
 resource "aws_lb_listener_rule" "api" {
@@ -190,7 +190,7 @@ resource "aws_lb_listener_rule" "api" {
     }
   }
 
-  tags = merge({ Name = "skyops-api-rule" }, local.protect)
+  tags = merge({ Name = "skybroe-api-rule" }, local.protect)
 }
 
 # ── Route53 A records (apex + www) → ALB ─────────────────────────
@@ -202,8 +202,8 @@ resource "aws_route53_record" "app" {
   allow_overwrite = true
 
   alias {
-    name                   = aws_lb.skyops.dns_name
-    zone_id                = aws_lb.skyops.zone_id
+    name                   = aws_lb.skybroe.dns_name
+    zone_id                = aws_lb.skybroe.zone_id
     evaluate_target_health = true
   }
 }
@@ -216,8 +216,8 @@ resource "aws_route53_record" "app_www" {
   allow_overwrite = true
 
   alias {
-    name                   = aws_lb.skyops.dns_name
-    zone_id                = aws_lb.skyops.zone_id
+    name                   = aws_lb.skybroe.dns_name
+    zone_id                = aws_lb.skybroe.zone_id
     evaluate_target_health = true
   }
 }
