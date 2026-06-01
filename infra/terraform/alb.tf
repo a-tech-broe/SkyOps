@@ -195,10 +195,11 @@ resource "aws_lb_listener_rule" "api" {
 
 # ── Route53 A records (apex + www) → ALB ─────────────────────────
 resource "aws_route53_record" "app" {
-  count   = var.hosted_zone_id != "" ? 1 : 0
-  zone_id = var.hosted_zone_id
-  name    = var.domain_name
-  type    = "A"
+  count           = var.hosted_zone_id != "" ? 1 : 0
+  zone_id         = var.hosted_zone_id
+  name            = var.domain_name
+  type            = "A"
+  allow_overwrite = true
 
   alias {
     name                   = aws_lb.skyops.dns_name
@@ -208,10 +209,11 @@ resource "aws_route53_record" "app" {
 }
 
 resource "aws_route53_record" "app_www" {
-  count   = var.hosted_zone_id != "" ? 1 : 0
-  zone_id = var.hosted_zone_id
-  name    = "www.${var.domain_name}"
-  type    = "A"
+  count           = var.hosted_zone_id != "" ? 1 : 0
+  zone_id         = var.hosted_zone_id
+  name            = "www.${var.domain_name}"
+  type            = "A"
+  allow_overwrite = true
 
   alias {
     name                   = aws_lb.skyops.dns_name
