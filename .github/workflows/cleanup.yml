@@ -152,11 +152,11 @@ jobs:
         run: |
           protected() { grep -qF "$1" /tmp/protected_arns.txt 2>/dev/null; }
 
-          ALB_ARN=$(aws elbv2 describe-load-balancers --names skyops-alb \
+          ALB_ARN=$(aws elbv2 describe-load-balancers --names skybroe-alb \
             --query "LoadBalancers[0].LoadBalancerArn" --output text 2>/dev/null || true)
 
           if [ -z "$ALB_ARN" ] || [ "$ALB_ARN" = "None" ]; then
-            echo "ALB skyops-alb not found."
+            echo "ALB skybroe-alb not found."
           elif protected "$ALB_ARN"; then
             echo "SKIP — ALB $ALB_ARN tagged do_not_delete=true"
           else
@@ -191,7 +191,7 @@ jobs:
             done
 
             if [ "$DRY_RUN" = "true" ]; then
-              echo "[DRY RUN] Would delete ALB skyops-alb"
+              echo "[DRY RUN] Would delete ALB skybroe-alb"
             else
               aws elbv2 delete-load-balancer --load-balancer-arn "$ALB_ARN"
               echo "Waiting for ALB deletion..."
@@ -201,7 +201,7 @@ jobs:
           fi
 
           # Target groups (only deletable once no ALB references them)
-          for TG_NAME in skyops-web-tg skyops-api-tg; do
+          for TG_NAME in skybroe-web-tg skybroe-api-tg; do
             TG_ARN=$(aws elbv2 describe-target-groups --names "$TG_NAME" \
               --query "TargetGroups[0].TargetGroupArn" --output text 2>/dev/null || true)
             [ -z "$TG_ARN" ] || [ "$TG_ARN" = "None" ] && \
@@ -222,7 +222,7 @@ jobs:
         run: |
           TERMINATE_IDS=""
 
-          for INST_NAME in skyops-app; do
+          for INST_NAME in skybroe-app; do
             INST_ID=$(aws ec2 describe-instances \
               --filters \
                 "Name=tag:Name,Values=$INST_NAME" \
@@ -262,7 +262,7 @@ jobs:
       # ── Phase 4: Security groups ────────────────────────────────────
       - name: "Phase 4 — Security groups"
         run: |
-          for SG_NAME in skyops-sg skyops-alb-sg; do
+          for SG_NAME in skybroe-sg skybroe-alb-sg; do
             SG_ID=$(aws ec2 describe-security-groups \
               --filters "Name=group-name,Values=$SG_NAME" \
               --query "SecurityGroups[0].GroupId" \
@@ -305,11 +305,11 @@ jobs:
       - name: "Phase 5 — Internet gateway + default route"
         run: |
           IGW_ID=$(aws ec2 describe-internet-gateways \
-            --filters "Name=tag:Name,Values=skyops-igw" \
+            --filters "Name=tag:Name,Values=skybroe-igw" \
             --query "InternetGateways[0].InternetGatewayId" \
             --output text 2>/dev/null || true)
           [ -z "$IGW_ID" ] || [ "$IGW_ID" = "None" ] && \
-            echo "IGW skyops-igw not found." && exit 0
+            echo "IGW skybroe-igw not found." && exit 0
 
           TAG=$(aws ec2 describe-tags \
             --filters \
@@ -539,7 +539,7 @@ jobs:
       # ── Phase 8: IAM (detach all policies → instance profile → role) ─
       - name: "Phase 8 — IAM (detach all policies → instance profile → role)"
         run: |
-          ROLE_NAME="skyops-ec2-role"
+          ROLE_NAME="skybroe-ec2-role"
           ROLE_ARN=$(aws iam get-role --role-name "$ROLE_NAME" \
             --query "Role.Arn" --output text 2>/dev/null || true)
           [ -z "$ROLE_ARN" ] || [ "$ROLE_ARN" = "None" ] && \
@@ -551,7 +551,7 @@ jobs:
           fi
 
           PROFILE_ARN=$(aws iam get-instance-profile \
-            --instance-profile-name "skyops-ec2-profile" \
+            --instance-profile-name "skybroe-ec2-profile" \
             --query "InstanceProfile.Arn" --output text 2>/dev/null || true)
           PROFILE_PROTECTED=false
           if [ -n "$PROFILE_ARN" ] && [ "$PROFILE_ARN" != "None" ] && \
@@ -570,7 +570,7 @@ jobs:
           if [ "$DRY_RUN" = "true" ]; then
             echo "[DRY RUN] Would delete inline policies: ${INLINE:-<none>}"
             echo "[DRY RUN] Would detach managed policies: ${ATTACHED:-<none>}"
-            echo "[DRY RUN] Would delete instance profile skyops-ec2-profile and role $ROLE_NAME"
+            echo "[DRY RUN] Would delete instance profile skybroe-ec2-profile and role $ROLE_NAME"
             [ "$PROFILE_PROTECTED" = "true" ] && \
               echo "  NOTE: instance profile $PROFILE_ARN is tagged do_not_delete=true — would be skipped"
           else
@@ -591,13 +591,13 @@ jobs:
             fi
 
             aws iam remove-role-from-instance-profile \
-              --instance-profile-name "skyops-ec2-profile" \
+              --instance-profile-name "skybroe-ec2-profile" \
               --role-name "$ROLE_NAME" 2>/dev/null \
               && echo "Removed role from instance profile" || true
 
             aws iam delete-instance-profile \
-              --instance-profile-name "skyops-ec2-profile" 2>/dev/null \
-              && echo "Deleted instance profile skyops-ec2-profile" \
+              --instance-profile-name "skybroe-ec2-profile" 2>/dev/null \
+              && echo "Deleted instance profile skybroe-ec2-profile" \
               || echo "Instance profile not found or already deleted"
 
             aws iam delete-role --role-name "$ROLE_NAME" \
