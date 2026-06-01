@@ -3,12 +3,14 @@ data "aws_vpc" "default" {
   default = true
 }
 
-resource "aws_internet_gateway" "skyops" {
-  vpc_id = data.aws_vpc.default.id
-  tags   = merge({ Name = "skyops-igw" }, local.protect)
-
-  lifecycle {
-    prevent_destroy = true
+# A default VPC always already has an internet gateway attached. Creating a
+# second one fails with "VPC already has an internet gateway attached" and
+# leaves a dangling, tainted resource, so reference the existing IGW instead
+# of managing our own.
+data "aws_internet_gateway" "default" {
+  filter {
+    name   = "attachment.vpc-id"
+    values = [data.aws_vpc.default.id]
   }
 }
 
@@ -24,11 +26,7 @@ data "aws_route_table" "main" {
 resource "aws_route" "internet" {
   route_table_id         = data.aws_route_table.main.id
   destination_cidr_block = "0.0.0.0/0"
-  gateway_id             = aws_internet_gateway.skyops.id
-
-  lifecycle {
-    prevent_destroy = true
-  }
+  gateway_id             = data.aws_internet_gateway.default.id
 }
 
 # ── AMI — latest Amazon Linux 2023 x86_64 ────────────────────────
@@ -186,8 +184,6 @@ resource "aws_instance" "skyops" {
   })
 
   tags = { Name = "skyops-app" }
-
-  depends_on = [aws_internet_gateway.skyops]
 
   lifecycle {
     prevent_destroy = true

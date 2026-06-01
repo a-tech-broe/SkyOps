@@ -319,12 +319,14 @@ jobs:
             echo "Removed legacy aws_eip.skyops from state"
           fi
 
-          # ── Internet gateway ────────────────────────────────────────
-          IGW_ID=$(aws ec2 describe-internet-gateways \
-            --filters "Name=tag:Name,Values=skyops-igw" \
-            --query "InternetGateways[0].InternetGatewayId" --output text --region "$REGION" 2>/dev/null || true)
-          [ -n "$IGW_ID" ] && [ "$IGW_ID" != "None" ] && \
-            tf_import_if_missing aws_internet_gateway.skyops "$IGW_ID"
+          # ── Internet gateway — now an unmanaged data source ─────────
+          # The default VPC's IGW is referenced via data source, not created.
+          # Drop any previously-imported (and possibly tainted/detached)
+          # managed entry so Terraform stops trying to replace it.
+          if terraform state show aws_internet_gateway.skyops > /dev/null 2>&1; then
+            terraform state rm aws_internet_gateway.skyops
+            echo "Removed aws_internet_gateway.skyops from state (now a data source)"
+          fi
 
           # ── Observability — SNS / logs / S3 / SSM ───────────────────
           tf_import_if_missing aws_sns_topic.alerts "arn:aws:sns:${REGION}:${ACCOUNT_ID}:skybroe-alerts"
