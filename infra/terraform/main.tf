@@ -175,12 +175,21 @@ resource "aws_instance" "skybroe" {
     encrypted   = true
   }
 
+  # IMDSv2 required; hop limit 2 so Docker containers can reach the instance
+  # metadata service to assume the role (e.g. the SES send permission).
+  metadata_options {
+    http_endpoint               = "enabled"
+    http_tokens                 = "required"
+    http_put_response_hop_limit = 2
+  }
+
   user_data = templatefile("${path.module}/user_data.sh.tpl", {
     aws_region         = var.aws_region
     ssm_prefix         = var.ssm_prefix
     dockerhub_username = var.dockerhub_username
     image_tag          = var.app_image_tag
     domain_name        = var.domain_name
+    ses_from_email     = local.ses_from_email
   })
 
   tags = { Name = "skybroe-app" }

@@ -60,3 +60,9 @@ variable "alarm_email" {
   type        = string
   default     = ""
 }
+
+variable "ses_from_email" {
+  description = "Verified SES sender for password-reset emails (defaults to noreply@<domain_name>)"
+  type        = string
+  default     = ""
+}
