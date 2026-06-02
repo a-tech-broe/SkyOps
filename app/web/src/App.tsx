@@ -42,7 +42,8 @@ function AppShell() {
           ? 'flex-1 overflow-hidden'
           : 'flex-1 container mx-auto px-4 py-6 max-w-5xl'
       }>
-        <Routes>
+        <div key={location.pathname} className="h-full animate-fade-in">
+        <Routes location={location}>
           <Route path="/" element={<LandingPage />} />
           <Route path="/reset-password" element={<ResetPasswordPage />} />
           <Route path="/map"      element={<ProtectedRoute><MapPage /></ProtectedRoute>} />
@@ -54,6 +55,7 @@ function AppShell() {
           <Route path="/dispatch" element={<ProtectedRoute><DispatchPage /></ProtectedRoute>} />
           <Route path="/ops"      element={<ProtectedRoute><ObservabilityPage /></ProtectedRoute>} />
         </Routes>
+        </div>
       </main>
     </div>
   );

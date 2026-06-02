@@ -1,4 +1,4 @@
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { NavLink, useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 
@@ -12,6 +12,12 @@ const opsDropdownLinks = [
   { to: '/route',    label: 'Briefing' },
   { to: '/currency', label: 'Currency' },
   { to: '/dispatch', label: 'Dispatch' },
+];
+
+// Flat, grouped list for the mobile menu (touch devices can't hover dropdowns)
+const mobileSections = [
+  { heading: 'Airports', links: [{ to: '/airports', label: 'Airports' }, ...airportsDropdownLinks] },
+  { heading: 'Ops',      links: [{ to: '/ops', label: 'Ops Overview' }, ...opsDropdownLinks] },
 ];
 
 const AIRPORTS_PATHS = new Set(['/airports', '/map', '/weather', '/winds']);
@@ -91,11 +97,16 @@ export default function NavBar({ dark, onToggle }: Props) {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
+  const [mobileOpen, setMobileOpen] = useState(false);
 
   const airportsActive = AIRPORTS_PATHS.has(location.pathname);
   const opsActive      = OPS_PATHS.has(location.pathname);
 
+  // Close the mobile menu whenever the route changes
+  useEffect(() => { setMobileOpen(false); }, [location.pathname]);
+
   function handleLogout() {
+    setMobileOpen(false);
     logout();
     navigate('/', { replace: true });
   }
@@ -114,9 +125,9 @@ export default function NavBar({ dark, onToggle }: Props) {
           </span>
         </div>
 
-        {/* Nav links — only shown when logged in */}
+        {/* Desktop nav links — only shown when logged in */}
         {user && (
-          <div className="flex gap-1 flex-1 items-center">
+          <div className="hidden md:flex gap-1 flex-1 items-center">
             <DropdownNav to="/airports" label="Airports" isActive={airportsActive} items={airportsDropdownLinks} />
             <DropdownNav to="/ops"      label="Ops"      isActive={opsActive}      items={opsDropdownLinks}      />
           </div>
@@ -158,8 +169,67 @@ export default function NavBar({ dark, onToggle }: Props) {
               </svg>
             )}
           </button>
+
+          {/* Mobile hamburger — only when logged in */}
+          {user && (
+            <button
+              onClick={() => setMobileOpen(o => !o)}
+              className="md:hidden p-2 rounded-lg text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+              aria-label="Toggle navigation menu"
+              aria-expanded={mobileOpen}
+            >
+              <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                {mobileOpen
+                  ? <><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></>
+                  : <><line x1="3" y1="6" x2="21" y2="6" /><line x1="3" y1="12" x2="21" y2="12" /><line x1="3" y1="18" x2="21" y2="18" /></>}
+              </svg>
+            </button>
+          )}
         </div>
       </div>
+
+      {/* Mobile menu panel */}
+      {user && mobileOpen && (
+        <div className="md:hidden border-t border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 animate-slide-up">
+          <div className="container mx-auto px-4 max-w-7xl py-3 space-y-4">
+            {mobileSections.map(section => (
+              <div key={section.heading}>
+                <p className="px-3 mb-1 text-[11px] font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500">
+                  {section.heading}
+                </p>
+                <div className="grid grid-cols-2 gap-1">
+                  {section.links.map(({ to, label }) => (
+                    <NavLink
+                      key={to}
+                      to={to}
+                      end
+                      className={({ isActive }) =>
+                        `px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${
+                          isActive
+                            ? 'bg-blue-600 text-white'
+                            : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'
+                        }`
+                      }
+                    >
+                      {label}
+                    </NavLink>
+                  ))}
+                </div>
+              </div>
+            ))}
+            {user && (
+              <div className="pt-2 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between">
+                <span className="px-3 text-xs text-slate-400 dark:text-slate-500 truncate max-w-[200px]">
+                  {user.email}
+                </span>
+                <button onClick={handleLogout} className="btn-secondary text-xs py-2 px-4">
+                  Log out
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
     </nav>
   );
 }

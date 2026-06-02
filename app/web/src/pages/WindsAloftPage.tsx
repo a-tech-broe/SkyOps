@@ -101,7 +101,9 @@ export default function WindsAloftPage() {
               </p>
             </div>
           ) : (
-            <div className="overflow-x-auto rounded-lg border border-slate-200 dark:border-slate-700">
+            <>
+            {/* Desktop / tablet — table */}
+            <div className="hidden sm:block overflow-x-auto rounded-lg border border-slate-200 dark:border-slate-700">
               <table className="w-full text-sm">
                 <thead className="bg-slate-50 dark:bg-slate-800/80">
                   <tr>
@@ -174,6 +176,60 @@ export default function WindsAloftPage() {
                 </tbody>
               </table>
             </div>
+
+            {/* Mobile — cards */}
+            <div className="sm:hidden space-y-2">
+              {data.levels.map((lv) => {
+                const isa = isaTemp(lv.altFt);
+                const dev = lv.tempC !== null ? lv.tempC - isa : null;
+                const altLabel =
+                  lv.altFt >= 18000 ? `FL${lv.altFt / 100}` : `${lv.altFt.toLocaleString()} ft`;
+                const dir =
+                  lv.dir === null ? '—'
+                  : lv.dir === 0 && lv.speed === 0 ? 'L & V'
+                  : `${String(lv.dir).padStart(3, '0')}°`;
+                return (
+                  <div key={lv.altFt} className="rounded-lg border border-slate-200 dark:border-slate-700 px-4 py-3">
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="font-mono font-semibold">{altLabel}</span>
+                      <span className="font-mono text-sm text-slate-500">{dir}</span>
+                    </div>
+                    <div className="grid grid-cols-3 gap-2 text-center">
+                      <div>
+                        <div className="text-[10px] uppercase tracking-wide text-slate-400">Speed</div>
+                        <div className={`font-mono font-medium ${
+                          lv.speed !== null && lv.speed >= 50 ? 'text-red-500'
+                          : lv.speed !== null && lv.speed >= 30 ? 'text-orange-500' : ''
+                        }`}>
+                          {lv.speed === null ? '—' : lv.speed === 0 ? 'Calm' : `${lv.speed} kt`}
+                        </div>
+                      </div>
+                      <div>
+                        <div className="text-[10px] uppercase tracking-wide text-slate-400">Temp</div>
+                        <div className={`font-mono ${
+                          lv.tempC !== null && lv.tempC < -40 ? 'text-blue-500'
+                          : lv.tempC !== null && lv.tempC > 5 ? 'text-orange-400'
+                          : 'text-slate-700 dark:text-slate-300'
+                        }`}>
+                          {lv.tempC !== null ? `${lv.tempC > 0 ? '+' : ''}${lv.tempC}°` : '—'}
+                        </div>
+                      </div>
+                      <div>
+                        <div className="text-[10px] uppercase tracking-wide text-slate-400">ISA Dev</div>
+                        <div className={`font-mono ${
+                          dev !== null && dev > 5 ? 'text-orange-500 font-medium'
+                          : dev !== null && dev < -5 ? 'text-blue-500 font-medium'
+                          : 'text-slate-500'
+                        }`}>
+                          {dev !== null ? `${dev > 0 ? '+' : ''}${dev.toFixed(0)}°C` : '—'}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+            </>
           )}
 
           <p className="text-xs text-slate-400">
