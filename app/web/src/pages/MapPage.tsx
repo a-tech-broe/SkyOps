@@ -84,7 +84,7 @@ export default function MapPage() {
     <div className="h-[calc(100vh-3.5rem)] relative">
 
       {/* ── Layer toggles ──────────────────────────────────────── */}
-      <div className="absolute top-3 right-12 z-[1000] flex gap-1.5">
+      <div className="absolute top-3 right-2 sm:right-12 left-2 sm:left-auto z-[1000] flex flex-wrap justify-end gap-1.5">
         <button
           onClick={() => setShowSigmets(v => !v)}
           className={`px-2.5 py-1 rounded text-xs font-semibold shadow transition-colors ${
