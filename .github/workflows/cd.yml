@@ -363,6 +363,9 @@ jobs:
           tf_import_if_missing aws_cloudwatch_metric_alarm.alb_unhealthy skybroe-alb-unhealthy-hosts
           tf_import_if_missing aws_cloudwatch_dashboard.skybroe SkyBroe-Overview
 
+          # ── SES — domain identity for transactional email ──────────
+          tf_import_if_missing aws_sesv2_email_identity.domain "$TF_VAR_domain_name"
+
       - name: Terraform Plan
         run: terraform plan -out=tfplan -input=false
 
@@ -407,7 +410,7 @@ jobs:
           host: ${{ secrets.EC2_HOST }}
           username: ec2-user
           key: ${{ secrets.EC2_SSH_KEY }}
-          envs: DOCKERHUB_USERNAME,DB_USER,DB_PASSWORD,JWT_SECRET,FAA_CLIENT_ID,FAA_CLIENT_SECRET,ANTHROPIC_API_KEY,VITE_API_URL
+          envs: DOCKERHUB_USERNAME,DB_USER,DB_PASSWORD,JWT_SECRET,FAA_CLIENT_ID,FAA_CLIENT_SECRET,ANTHROPIC_API_KEY,VITE_API_URL,AWS_REGION,APP_URL,SES_FROM_EMAIL
           script: |
             set -e
             # Install Docker + Compose plugin if not already present
@@ -431,6 +434,9 @@ jobs:
             ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
             VITE_API_URL=${VITE_API_URL}
             DOCKERHUB_USERNAME=${DOCKERHUB_USERNAME}
+            AWS_REGION=${AWS_REGION}
+            APP_URL=${APP_URL}
+            SES_FROM_EMAIL=${SES_FROM_EMAIL}
             IMAGE_TAG=latest
             EOF
             sudo chmod 600 /opt/skybroe/.env
@@ -464,6 +470,9 @@ jobs:
                   FAA_CLIENT_SECRET: ${FAA_CLIENT_SECRET}
                   ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
                   JWT_SECRET: ${JWT_SECRET}
+                  AWS_REGION: ${AWS_REGION}
+                  APP_URL: ${APP_URL}
+                  SES_FROM_EMAIL: ${SES_FROM_EMAIL}
                 ports:
                   - "3001:3001"
               web:
@@ -489,6 +498,9 @@ jobs:
           FAA_CLIENT_SECRET:  ${{ secrets.FAA_CLIENT_SECRET }}
           ANTHROPIC_API_KEY:  ${{ secrets.ANTHROPIC_API_KEY }}
           VITE_API_URL:       https://${{ secrets.APP_DOMAIN }}
+          AWS_REGION:         ${{ secrets.AWS_REGION || 'us-east-1' }}
+          APP_URL:            https://${{ secrets.APP_DOMAIN }}
+          SES_FROM_EMAIL:     ${{ secrets.SES_FROM_EMAIL || format('noreply@{0}', secrets.APP_DOMAIN) }}
 
   # ── 7. Production smoke test ──────────────────────────────────────
   smoke-prod:

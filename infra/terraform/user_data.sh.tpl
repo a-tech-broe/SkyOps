@@ -55,6 +55,7 @@ services:
       FAA_CLIENT_SECRET: $${FAA_CLIENT_SECRET}
       AWS_REGION: ${aws_region}
       APP_URL: https://${domain_name}
+      SES_FROM_EMAIL: ${ses_from_email}
     logging:
       driver: awslogs
       options:
