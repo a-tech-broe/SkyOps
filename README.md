@@ -1,9 +1,9 @@
-# SkyOps
+# SkyBroe
 
 Aviation tools for student pilots, airline crews, and flight ops/dispatch — Weather · NOTAMs · Airports · Winds · Briefing · Currency · Dispatch · AI Voice · Ops Intelligence · Replay
 
-[![CI](https://github.com/a-tech-broe/SkyOps/actions/workflows/ci.yml/badge.svg)](https://github.com/a-tech-broe/SkyOps/actions/workflows/ci.yml)
-[![CD](https://github.com/a-tech-broe/SkyOps/actions/workflows/cd.yml/badge.svg)](https://github.com/a-tech-broe/SkyOps/actions/workflows/cd.yml)
+[![CI](https://github.com/a-tech-broe/SkyBroe/actions/workflows/ci.yml/badge.svg)](https://github.com/a-tech-broe/SkyBroe/actions/workflows/ci.yml)
+[![CD](https://github.com/a-tech-broe/SkyBroe/actions/workflows/cd.yml/badge.svg)](https://github.com/a-tech-broe/SkyBroe/actions/workflows/cd.yml)
 
 > Powered by [ATechBroe](https://atechbroe.com)
 
@@ -25,6 +25,7 @@ Aviation tools for student pilots, airline crews, and flight ops/dispatch — We
 | **Operational Replay** | Ops / training | 15-min weather snapshot history · colored timeline bar · scrubber · playback — up to 7 days |
 | **Search history** | All | Every ICAO lookup persisted in Postgres per device; dropdown on all search inputs |
 | **Light / Dark mode** | All | Toggle in nav bar; preference persists |
+| **Accounts** | All | Email + password sign-up / login (JWT); self-service password reset via emailed link (Amazon SES) |
 
 ## Flight Rules
 
@@ -48,6 +49,20 @@ Available on the Weather, NOTAMs, Airports, and Route Briefing pages. After load
 The voice picker selects the most natural-sounding voice available: Google neural → Apple Samantha → any Enhanced US English voice → fallback US English.
 
 Requires `ANTHROPIC_API_KEY` to be set. Returns a `503` with a clear error message if the key is missing.
+
+---
+
+## Accounts & Password Reset
+
+Sign-up and login use email + password, with sessions carried as a JWT (`skybroe_token` in `localStorage`, signed with `JWT_SECRET`).
+
+Password reset is self-service:
+
+1. `POST /api/auth/forgot-password` — always returns the same response (so it never reveals whether an email is registered). If the address exists, a single-use token (1-hour expiry) is stored in `password_reset_tokens` and a reset email is sent.
+2. The email is sent via **Amazon SES** from `SES_FROM_EMAIL` and links to `${APP_URL}/reset-password?token=…`.
+3. `POST /api/auth/reset-password` — validates the token and sets the new password.
+
+> Delivery requires a **verified SES sender identity** and, for arbitrary recipients, **SES production access** (a new account is in the SES sandbox and can only send to verified addresses). The EC2 instance role grants `ses:SendEmail`; ensure the running container can reach instance-role credentials.
 
 ---
 
@@ -306,7 +321,7 @@ Every ICAO lookup (Weather, NOTAMs, Airports) is persisted in PostgreSQL tied to
 
 ### How it works
 
-1. On first visit the browser generates a UUID and stores it as `skyops_device_id` in `localStorage`
+1. On first visit the browser generates a UUID and stores it as `skybroe_device_id` in `localStorage`
 2. Every search fires a background `POST /api/history` with the device ID, ICAO, and search type
 3. Clicking any search input fetches `GET /api/history?deviceId=...&type=...` and shows a dropdown of recent lookups (deduplicated by airport, most recent first, top 10)
 4. Selecting a history item fills the field and immediately triggers the search
@@ -328,7 +343,7 @@ CREATE TABLE search_history (
 ## Repository Layout
 
 ```
-SkyOps/
+SkyBroe/
 ├── app/
 │   ├── backend/                    # Node.js 22 + Express + TypeScript API
 │   ├── web/                        # React 18 + Vite + Tailwind CSS (light/dark mode)
@@ -336,11 +351,12 @@ SkyOps/
 │   ├── docker-compose.yml          # Build from source (local prod simulation)
 │   └── docker-compose.dev.yml      # Dev with hot reload
 ├── infra/
-│   ├── terraform/                  # AWS — EC2, ALB, ACM, IAM, SGs (Terraform ≥ 1.8)
+│   ├── terraform/                  # AWS — EC2, ALB, ACM, IAM, SGs, CloudWatch/RUM (Terraform ≥ 1.8)
 │   └── docker-compose.prod.yml     # App EC2 runtime (web + backend + db)
 └── .github/workflows/
-    ├── ci.yml   # PR / dev — lint · scan · build · infra plan
-    └── cd.yml   # main    — build · push · infra apply · deploy · smoke test
+    ├── ci.yml       # PR / dev — lint · scan · build · infra plan
+    ├── cd.yml       # main    — build · push · infra apply · deploy · smoke test
+    └── cleanup.yml  # manual  — tear down cost-incurring resources (EC2 + ALB)
 ```
 
 ---
@@ -397,6 +413,9 @@ docker compose -f app/docker-compose.yml up --build -d
 | `FAA_CLIENT_ID` | Yes (NOTAMs) | FAA API client ID — register at [api.faa.gov](https://api.faa.gov/) |
 | `FAA_CLIENT_SECRET` | Yes (NOTAMs) | FAA API client secret |
 | `ANTHROPIC_API_KEY` | Yes (AI Voice) | Anthropic API key for Claude Haiku — get at [console.anthropic.com](https://console.anthropic.com/) |
+| `APP_URL` | No (defaults) | Base URL used to build the password-reset link in emails (defaults to `https://skybroe.com`) |
+| `SES_FROM_EMAIL` | Yes (password reset) | Verified Amazon SES sender for reset emails (defaults to `noreply@skybroe.com`) |
+| `AWS_REGION` | No (defaults) | Region for the SES client (defaults to `us-east-1`) |
 | `EXPO_PUBLIC_API_URL` | Yes | Backend URL for mobile |
 
 ---
@@ -423,10 +442,16 @@ Runs all security gates, then:
 | Job | What happens |
 |---|---|
 | Build & push | Multi-arch (`amd64` + `arm64`) → DockerHub + Trivy scan + Cosign sign + SBOM |
-| Infra apply | `terraform apply` — provisions EC2, ALB, ACM, SGs |
+| Infra apply | `terraform apply` — re-imports survivors, then provisions EC2, ALB, ACM, SGs, CloudWatch/RUM |
 | Deploy | SSH → app EC2 — writes `.env` + `docker-compose.prod.yml` → `docker compose up` |
 | Production smoke test | HTTPS `curl` against `APP_DOMAIN`: `/health`, web HTML, weather and airport endpoints |
 | Summary | Release digest table + `cosign verify` instructions |
+
+On a state-loss recovery (e.g. after a teardown that wiped Terraform state), `infra apply` first re-imports every surviving `do_not_delete` resource so Terraform reconciles instead of colliding with existing infrastructure.
+
+### `cleanup.yml` — manual teardown
+
+Manually dispatched, with a typed `DESTROY` confirmation and **dry-run on by default**. Walks resources in dependency order (Route53 → ALB → EC2 → security groups → ACM → observability → IAM → optional TF state) and **skips anything tagged `do_not_delete = true`**, so a normal run destroys only the EC2 instance and ALB. Set `dry_run=false` to actually delete; `clean_tf_state=true` additionally wipes the remote state file.
 
 ### GitHub Secrets
 
@@ -440,7 +465,7 @@ Runs all security gates, then:
 | `FAA_CLIENT_SECRET` | CD — written to app EC2 `.env` |
 | `JWT_SECRET` | CD — written to app EC2 `.env`; signs auth tokens |
 | `ANTHROPIC_API_KEY` | CD — written to app EC2 `.env`; required for AI voice brief |
-| `APP_DOMAIN` | CD — ACM cert domain + smoke tests (e.g. `skyops.example.com`) |
+| `APP_DOMAIN` | CD — ACM cert domain + smoke tests (e.g. `skybroe.example.com`) |
 | `HOSTED_ZONE_ID` | CI/CD — Route53 hosted zone ID for auto DNS validation + A records (optional) |
 | `AWS_ACCESS_KEY_ID` | CI infra plan + CD infra apply |
 | `AWS_SECRET_ACCESS_KEY` | CI infra plan + CD infra apply |
@@ -477,15 +502,28 @@ App EC2  (m5.xlarge)
 
 | Resource | Detail |
 |---|---|
-| App EC2 | Amazon Linux 2023, `m5.xlarge`, 20 GB gp3 encrypted |
-| ALB | Application Load Balancer — HTTP→HTTPS redirect, path-based routing |
+| App EC2 | Amazon Linux 2023, `m5.xlarge`, 30 GB gp3 encrypted |
+| ALB | Application Load Balancer — HTTP→HTTPS redirect, path-based routing, access logs → S3 |
 | ACM | TLS certificate for `APP_DOMAIN` — DNS validated |
-| Internet Gateway | Attached to default VPC |
-| Security groups | ALB SG (80+443 public); App SG — both with `prevent_destroy` |
-| IAM role | Least-privilege — SSM read-only scoped to `/skyops/*` |
+| Internet gateway | The default VPC's existing IGW, referenced as a **data source** (not created — a default VPC already has one) |
+| Security groups | ALB SG (80+443 public); App SG |
+| IAM role | Least-privilege — SSM read scoped to `/skybroe/*`, SES send, CloudWatch agent, X-Ray |
 | Elastic IP | Pre-allocated — referenced as a data source, never recreated by Terraform |
+| Observability | CloudWatch dashboard, metric alarms, log groups, RUM, SNS alerts, S3 ALB-log bucket (see below) |
 
-All resources use `lifecycle { prevent_destroy = true }` — Terraform will never destroy existing infrastructure.
+### Protected vs. disposable resources
+
+Every free / near-zero-cost resource (networking, IAM, ACM, target groups, listeners, and the entire observability stack) is tagged `do_not_delete = true`, and most also carry `lifecycle { prevent_destroy = true }`. Only the two cost-incurring resources — the **EC2 instance** and the **ALB** — are left disposable. This lets the `cleanup` workflow tear down the expensive pieces while preserving the scaffolding for cheap re-provisioning.
+
+### Observability
+
+| Component | Detail |
+|---|---|
+| Dashboard | `SkyBroe-Overview` — EC2 CPU/mem/disk/network, ALB request count / latency / status codes, and live app-log query widgets |
+| Alarms | CPU, memory, disk, ALB 5xx, ALB p95 latency, unhealthy hosts → SNS topic `skybroe-alerts` (email on `alarm_email`) |
+| Logs | CloudWatch log groups `/skybroe/app` (30 d) and `/skybroe/system` (14 d); CloudWatch agent config in SSM |
+| RUM | CloudWatch RUM app monitor `skybroe-web` with a Cognito guest identity pool for browser telemetry |
+| ALB access logs | Shipped to S3 bucket `skybroe-alb-logs-<account>`, expired after 90 days |
 
 ### First-time setup
 
@@ -531,6 +569,11 @@ terraform apply  # provision
 
 | Method | Path | Description |
 | --- | --- | --- |
+| `POST` | `/api/auth/register` | Create an account (email + password) |
+| `POST` | `/api/auth/login` | Log in, returns a JWT |
+| `GET` | `/api/auth/me` | Current user (requires auth) |
+| `POST` | `/api/auth/forgot-password` | Email a password-reset link (always 200) |
+| `POST` | `/api/auth/reset-password` | Set a new password from a reset token |
 | `GET` | `/api/weather/metar/:icao` | METAR JSON |
 | `GET` | `/api/weather/taf/:icao` | TAF JSON |
 | `GET` | `/api/weather/pireps/:icao` | PIREPs within 100 SM |
