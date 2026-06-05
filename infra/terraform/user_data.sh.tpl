@@ -51,8 +51,10 @@ services:
       NODE_ENV: production
       PORT: 3001
       DB_URL: postgresql://$${DB_USER}:$${DB_PASSWORD}@db:5432/skybroe
+      JWT_SECRET: $${JWT_SECRET}
       FAA_CLIENT_ID: $${FAA_CLIENT_ID}
       FAA_CLIENT_SECRET: $${FAA_CLIENT_SECRET}
+      ANTHROPIC_API_KEY: $${ANTHROPIC_API_KEY}
       AWS_REGION: ${aws_region}
       APP_URL: https://${domain_name}
       SES_FROM_EMAIL: ${ses_from_email}

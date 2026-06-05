@@ -208,8 +208,7 @@ data "aws_eip" "skybroe" {
 resource "aws_eip_association" "skybroe" {
   instance_id   = aws_instance.skybroe.id
   allocation_id = data.aws_eip.skybroe.id
-
-  lifecycle {
-    ignore_changes = [instance_id, allocation_id]
-  }
+  # No ignore_changes here: if the instance is recreated (e.g. after a cleanup
+  # cycle), the association must re-point to the new instance, otherwise the
+  # new server comes up without the Elastic IP and the SSH deploy fails.
 }

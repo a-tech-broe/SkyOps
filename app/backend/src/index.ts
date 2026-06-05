@@ -46,6 +46,6 @@ app.use(errorHandler);
 initDb()
   .then(() => {
     startSnapshotCollector();
-    app.listen(PORT, () => console.log(`SkyOps API running on port ${PORT}`));
+    app.listen(PORT, () => console.log(`SkyBroe API running on port ${PORT}`));
   })
   .catch((err) => { console.error('DB init failed:', err); process.exit(1); });

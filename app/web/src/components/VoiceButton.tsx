@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { api } from '../api/client';
 
 type BriefType = 'weather' | 'airport' | 'route' | 'notam';
@@ -37,6 +37,11 @@ export default function VoiceButton({ type, data, disabled }: Props) {
   const [errorMsg, setErrorMsg] = useState('');
   const utterRef = useRef<SpeechSynthesisUtterance | null>(null);
 
+  // Stop any in-progress speech if the component unmounts (e.g. navigating away).
+  useEffect(() => {
+    return () => window.speechSynthesis.cancel();
+  }, []);
+
   function stop() {
     window.speechSynthesis.cancel();
     utterRef.current = null;
@@ -62,7 +67,7 @@ export default function VoiceButton({ type, data, disabled }: Props) {
       utt.onend = () => setState('idle');
       utt.onerror = () => setState('idle');
       setState('speaking');
-      setTimeout(() => window.speechSynthesis.speak(utt), 3000);
+      window.speechSynthesis.speak(utt);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       console.error('[VoiceButton]', msg);
