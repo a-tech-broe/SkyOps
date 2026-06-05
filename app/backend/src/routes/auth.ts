@@ -94,7 +94,12 @@ router.post('/forgot-password', async (req, res, next) => {
         [rows[0].id, token, expiresAt],
       );
       const appUrl = process.env.APP_URL || 'https://skybroe.com';
-      await sendPasswordResetEmail(email.toLowerCase().trim(), `${appUrl}/reset-password?token=${token}`);
+      // Fire-and-forget: don't await the SES round-trip. Awaiting would make
+      // the response slower only when the email exists (a timing oracle for
+      // account enumeration) and would surface send failures as a 500 — also
+      // an enumeration signal. Log failures server-side instead.
+      sendPasswordResetEmail(email.toLowerCase().trim(), `${appUrl}/reset-password?token=${token}`)
+        .catch((err) => console.error('[forgot-password] email send failed:', err));
     }
 
     // Always respond the same way — don't leak whether the email exists

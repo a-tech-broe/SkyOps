@@ -51,7 +51,7 @@ interface Currency {
   reviewExpires: Date | null;
 }
 
-function calcCurrency(logs: FlightLog[]): Currency {
+function calcCurrency(logs: FlightLog[], reviewDateStr: string | null): Currency {
   const now = new Date();
   const cutoff90 = new Date(now); cutoff90.setDate(cutoff90.getDate() - 90);
   const cutoff6mo = addMonths(now, -6);
@@ -90,7 +90,6 @@ function calcCurrency(logs: FlightLog[]): Currency {
       ? addMonths(new Date(approachDates[0]), 6)
       : null;
 
-  const reviewDateStr = localStorage.getItem(REVIEW_KEY);
   const reviewDate = reviewDateStr ? new Date(reviewDateStr) : null;
   const reviewExpires = reviewDate ? addMonths(reviewDate, 24) : null;
 
@@ -141,6 +140,10 @@ export default function CurrencyPage() {
   const [reviewInput, setReviewInput] = useState(
     () => localStorage.getItem(REVIEW_KEY) ?? ''
   );
+  // Committed review date — drives the status card; updated on Save so the UI re-renders.
+  const [savedReview, setSavedReview] = useState(
+    () => localStorage.getItem(REVIEW_KEY) ?? ''
+  );
   const [showForm, setShowForm] = useState(false);
 
   useEffect(() => {
@@ -173,9 +176,10 @@ export default function CurrencyPage() {
     } else {
       localStorage.removeItem(REVIEW_KEY);
     }
+    setSavedReview(reviewInput);
   }
 
-  const cur = calcCurrency(logs);
+  const cur = calcCurrency(logs, savedReview);
 
   const statusCards = [
     {
