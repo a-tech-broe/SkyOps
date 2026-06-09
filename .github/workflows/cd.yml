@@ -394,6 +394,29 @@ jobs:
     needs: [infra-apply]
 
     steps:
+      - name: Validate required secrets
+        # Fail fast with a clear message if a required secret is missing. Without
+        # this, an empty JWT_SECRET (or DB creds) is written to .env and the
+        # backend crash-loops at boot — surfacing only as a confusing 5-minute
+        # smoke-test timeout much later in the pipeline.
+        env:
+          JWT_SECRET:         ${{ secrets.JWT_SECRET }}
+          DB_USER:            ${{ secrets.DB_USER }}
+          DB_PASSWORD:        ${{ secrets.DB_PASSWORD }}
+          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+          EC2_HOST:           ${{ secrets.EC2_HOST }}
+          EC2_SSH_KEY:        ${{ secrets.EC2_SSH_KEY }}
+        run: |
+          missing=0
+          for name in JWT_SECRET DB_USER DB_PASSWORD DOCKERHUB_USERNAME EC2_HOST EC2_SSH_KEY; do
+            if [ -z "${!name}" ]; then
+              echo "::error::Required secret '${name}' is not set — configure it in repo Settings → Secrets and variables → Actions"
+              missing=1
+            fi
+          done
+          [ "$missing" -eq 0 ] || exit 1
+          echo "All required secrets are present."
+
       - name: Wait for SSH to be ready
         run: |
           for i in $(seq 1 24); do
