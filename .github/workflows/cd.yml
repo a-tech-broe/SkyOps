@@ -523,20 +523,36 @@ jobs:
     needs: [deploy]
 
     steps:
-      - name: Wait for containers to stabilize
-        run: sleep 30
-
       - name: API health check
         run: |
-          curl -sf "https://${{ secrets.APP_DOMAIN }}/health" \
-            | jq -e '.status == "ok"' \
-            || (echo "::error::API health check failed" && exit 1)
+          # The backend only starts listening after Postgres is healthy and
+          # initDb() completes, then the ALB needs 2 passing checks before it
+          # routes traffic — so poll until ready rather than guessing with a
+          # fixed sleep. Up to 30 attempts × 10s = 5 min before giving up.
+          for i in $(seq 1 30); do
+            if curl -sf "https://${{ secrets.APP_DOMAIN }}/health" -o /tmp/health.json \
+               && jq -e '.status == "ok"' /tmp/health.json >/dev/null 2>&1; then
+              echo "API healthy after ${i} attempt(s)"
+              exit 0
+            fi
+            echo "attempt ${i}/30: API not ready yet, retrying in 10s…"
+            sleep 10
+          done
+          echo "::error::API health check failed after 30 attempts (5 min)"
+          exit 1
 
       - name: Web health check
         run: |
-          curl -sf "https://${{ secrets.APP_DOMAIN }}/" \
-            | grep -qi "<!DOCTYPE html>" \
-            || (echo "::error::Web health check failed" && exit 1)
+          for i in $(seq 1 30); do
+            if curl -sf "https://${{ secrets.APP_DOMAIN }}/" | grep -qi "<!DOCTYPE html>"; then
+              echo "Web healthy after ${i} attempt(s)"
+              exit 0
+            fi
+            echo "attempt ${i}/30: Web not ready yet, retrying in 10s…"
+            sleep 10
+          done
+          echo "::error::Web health check failed after 30 attempts (5 min)"
+          exit 1
 
       - name: Weather API smoke test
         run: |

@@ -29,11 +29,11 @@ RUN apt-get update \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 RUN addgroup --system --gid 1001 nodejs \
-    && adduser --system --uid 1001 --ingroup nodejs skyops
+    && adduser --system --uid 1001 --ingroup nodejs skybroe
 WORKDIR /app
 ENV NODE_ENV=production
-COPY --chown=skyops:nodejs --from=deps    /app/node_modules ./node_modules
-COPY --chown=skyops:nodejs --from=builder /app/dist         ./dist
-USER skyops
+COPY --chown=skybroe:nodejs --from=deps    /app/node_modules ./node_modules
+COPY --chown=skybroe:nodejs --from=builder /app/dist         ./dist
+USER skybroe
 EXPOSE 3001
 CMD ["node", "dist/index.js"]

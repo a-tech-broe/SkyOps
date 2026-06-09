@@ -5,15 +5,15 @@ services:
     image: postgres:16-alpine
     restart: unless-stopped
     environment:
-      POSTGRES_DB: skyops
-      POSTGRES_USER: ${DB_USER:-skyops}
-      POSTGRES_PASSWORD: ${DB_PASSWORD:-skyops_dev}
+      POSTGRES_DB: skybroe
+      POSTGRES_USER: ${DB_USER:-skybroe}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-skybroe_dev}
     volumes:
       - postgres_data:/var/lib/postgresql/data
     ports:
       - "5432:5432"
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-skyops}"]
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-skybroe}"]
       interval: 5s
       timeout: 5s
       retries: 5
@@ -26,7 +26,7 @@ services:
     environment:
       NODE_ENV: production
       PORT: 3001
-      DB_URL: postgresql://${DB_USER:-skyops}:${DB_PASSWORD:-skyops_dev}@db:5432/skyops
+      DB_URL: postgresql://${DB_USER:-skybroe}:${DB_PASSWORD:-skybroe_dev}@db:5432/skybroe
       FAA_CLIENT_ID: ${FAA_CLIENT_ID:-}
       FAA_CLIENT_SECRET: ${FAA_CLIENT_SECRET:-}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}

@@ -1,11 +1,11 @@
 {
   "expo": {
-    "name": "SkyOps",
-    "slug": "skyops",
+    "name": "SkyBroe",
+    "slug": "skybroe",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
-    "scheme": "skyops",
+    "scheme": "skybroe",
     "userInterfaceStyle": "dark",
     "splash": {
       "image": "./assets/splash.png",
@@ -14,14 +14,14 @@
     },
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.skyops.app"
+      "bundleIdentifier": "com.skybroe.app"
     },
     "android": {
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#0f172a"
       },
-      "package": "com.skyops.app"
+      "package": "com.skybroe.app"
     },
     "plugins": ["expo-router"]
   }
